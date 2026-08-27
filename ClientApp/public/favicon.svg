@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Ticket Cloner">
+  <!--
+    A record and its copy, offset. Indigo is the site read from, green the site
+    written to - the same colour system the interface uses. Two soft blocks and
+    a gap, so it still reads at 16px.
+  -->
+  <rect width="32" height="32" rx="8" fill="#f5f0e8"/>
+  <rect x="6" y="5" width="16" height="12" rx="3" fill="#3d5a8a"/>
+  <rect x="10" y="15" width="16" height="12" rx="3" fill="#2e7d6b"/>
+  <rect x="10" y="15" width="12" height="2.5" rx="1.25" fill="#f5f0e8"/>
+</svg>

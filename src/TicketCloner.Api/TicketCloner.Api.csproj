@@ -1,0 +1,69 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>d3090b77-5a80-43e8-8d2f-07bd7edf09cf</UserSecretsId>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <SpaRoot>$(MSBuildProjectDirectory)\..\..\ClientApp\</SpaRoot>
+
+    <!-- Where the app will be mounted, with a trailing slash. "/" is its own
+         IIS site. Override when it is an application INSIDE another site:
+           dotnet publish ... -p:AppBase=/ticket-cloner/
+         Baked into the SPA at build time, so a build made for one mount point
+         cannot be dropped at another. -->
+    <AppBase Condition="'$(AppBase)' == ''">/</AppBase>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+  </ItemGroup>
+
+  <!-- The Web SDK globs appsettings*.json into the publish output, which swept
+       appsettings.Local.json - the one file that holds a live API token - into
+       every deployment. Verified: a publish carried two real tokens into the
+       output folder. Neither of these belongs on a server. -->
+  <ItemGroup>
+    <!-- Never in bin either, not just never published. The build was copying
+         these into bin/Debug, bin/Release AND the test output, so one file
+         holding a live secret became four. The app reads its content root,
+         which for dotnet run/watch is the project directory, so nothing
+         needs the copy. -->
+    <Content Update="appsettings.Local*.json"
+             CopyToOutputDirectory="Never"
+             CopyToPublishDirectory="Never" />
+
+    <!-- Development-only config has no business on a server, and this file is
+         not inert there: it points OAuth:PostSignInUrl at Vite on localhost.
+         An instance accidentally running as Development would complete a
+         sign-in by redirecting the browser to a port on the SERVER. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <!-- The SPA is only built on publish, so day-to-day dotnet build stays fast.
+       In development Vite serves it instead; see the proxy in vite.config.ts. -->
+  <Target Name="RestoreSpa" Condition="!Exists('$(SpaRoot)node_modules')">
+    <Message Importance="high" Text="Restoring npm packages for the SPA..." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm ci" />
+  </Target>
+
+  <Target Name="BuildSpa" DependsOnTargets="RestoreSpa" AfterTargets="ComputeFilesToPublish">
+    <Message Importance="high" Text="Building the SPA into wwwroot (base $(AppBase))..." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" EnvironmentVariables="APP_BASE=$(AppBase)" />
+
+    <ItemGroup>
+      <SpaDistFiles Include="$(SpaRoot)dist\**" />
+
+      <!-- Added to the publish output directly rather than copied into the source
+           tree, so nothing generated ever lands in src/. -->
+      <ResolvedFileToPublish Include="@(SpaDistFiles-&gt;'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

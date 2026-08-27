@@ -1,0 +1,66 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+publish-test/
+
+# SPA build output - generated into wwwroot by the BuildSpa target (Phase 8)
+ClientApp/dist/
+src/TicketCloner.Api/wwwroot/
+
+# Node
+node_modules/
+
+# Serilog file sink output (path is relative to content root)
+logs/
+*.log
+
+# Editors / tooling
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Claude Code: launch.json is shared, settings.local.json is per-developer and
+# records local paths and approved commands.
+.claude/
+.claude/settings.local.json
+
+# Local environment. Real secrets live in user-secrets or appsettings.Local.json,
+# neither of which belongs in the repo.
+*.env
+.env.local
+appsettings.Local.json
+
+# Settings tab state (branch names, repository list). Per-installation, not
+# per-repo - and it is written at runtime.
+App_Data/
+
+# Powershell scripts
+*.ps1
+
+.DS_Store
+
+.gitattributes
+
+# Ignore all Markdown files
+*.md
+
+# Do not ignore README.md
+!README.md
+# Private local configuration, exports, and generated artifacts
+.env
+.env.*
+!.env.example
+appsettings.Local*.json
+!appsettings.Local.example.json
+probe-*.json
+phase0-*.json
+*.zip
+TestResults/
+*.trx
+# Publication guidance should travel with source
+!PUBLICATION.md

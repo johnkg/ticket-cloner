@@ -1,0 +1,1118 @@
+/*
+ * Ticket Cloner — "Workbench"
+ *
+ * A calm, warm workspace for a job that is mostly reading carefully and then
+ * committing to something irreversible.
+ *
+ * The one idea kept from before, because it is functional rather than
+ * decorative: each Atlassian site owns a colour. The project called TGT lives
+ * on the target-site site and the project called Source Project lives
+ * on the source-site site, so nobody should have to read a hostname to know which
+ * one they are looking at. Indigo is read from. Green is written to.
+ *
+ * Everything else is warmth and room: oat paper, soft raised surfaces, rounded
+ * corners, sentence case, and space instead of rules wherever a line was only
+ * doing the work of a gap.
+ */
+
+:root {
+  /* Warm neutrals. Every grey is tinted the same way so nothing reads cold. */
+  --paper: #f5f0e8;
+  --ply: #fffdf9;
+  --ink: #2a2520;
+  --muted: #706a62;
+  --rule: #e4dbcd;
+
+  --source: #3d5a8a;
+  --source-soft: #e6ebf3;
+  --target: #2a7363;
+  --target-soft: #e2efeb;
+
+  --alarm: #a4453a;
+  --alarm-soft: #fbe8e4;
+  --flag: #88631b;
+  --flag-soft: #fbf0dc;
+
+  /* Radius gets tighter as elements nest, so a control inside a card inside a
+     panel does not look like three of the same box. */
+  --r-lg: 14px;
+  --r-md: 10px;
+  --r-sm: 8px;
+  --r-xs: 6px;
+
+  /* Shadows carry the paper's warmth instead of neutral black, and come from a
+     single light source above. */
+  --shadow-sm: 0 1px 2px rgb(74 62 48 / 6%), 0 1px 3px rgb(74 62 48 / 5%);
+  --shadow-md: 0 2px 4px rgb(74 62 48 / 5%), 0 6px 16px rgb(74 62 48 / 8%);
+
+  /* Mapped onto the original names so every component keeps working. Accent is
+     the target colour on purpose: the primary action writes to the target, so
+     the button is the colour of the place it writes to. */
+  --bg: var(--paper);
+  --panel: var(--ply);
+  --input: #ffffff;
+  --text: var(--ink);
+  --border: var(--rule);
+  --accent: var(--target);
+  --accent-text: #ffffff;
+  --error-bg: var(--alarm-soft);
+  --error-border: #eec7be;
+  --error-text: var(--alarm);
+  --notice-bg: var(--target-soft);
+  --notice-border: #b9d8cf;
+  --warn-bg: var(--flag-soft);
+  --warn-border: #e6cf9d;
+  --warn-text: var(--flag);
+
+  --display: Fraunces, Georgia, "Times New Roman", serif;
+  --body: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.6;
+  color-scheme: light;
+}
+
+/*
+ * Dark values live in a named block used twice: once for "follow the system"
+ * (guarded so an explicit light choice still wins) and once for the explicit
+ * dark choice. Defining them only inside the media query would leave the
+ * toggle unable to turn dark on in a light OS.
+ *
+ * Warm in the dark too - a brown-black rather than a blue-black, or the page
+ * changes temperature when the lights go out.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #1c1a17;
+    --ply: #26231e;
+    --ink: #f0ebe3;
+    --muted: #a49b8f;
+    --rule: #3a352e;
+    --source: #8fb0e0;
+    --source-soft: #202836;
+    --target: #6fc7ad;
+    --target-soft: #1b2f2a;
+    --alarm: #e59284;
+    --alarm-soft: #33201c;
+    --flag: #dfae55;
+    --flag-soft: #322817;
+    --input: #2e2a24;
+    --accent-text: #10201b;
+    --error-border: #5f382f;
+    --notice-border: #2f5b4f;
+    --warn-border: #5d4a24;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%), 0 1px 3px rgb(0 0 0 / 22%);
+    --shadow-md: 0 2px 4px rgb(0 0 0 / 28%), 0 6px 16px rgb(0 0 0 / 34%);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #1c1a17;
+  --ply: #26231e;
+  --ink: #f0ebe3;
+  --muted: #a49b8f;
+  --rule: #3a352e;
+  --source: #8fb0e0;
+  --source-soft: #202836;
+  --target: #6fc7ad;
+  --target-soft: #1b2f2a;
+  --alarm: #e59284;
+  --alarm-soft: #33201c;
+  --flag: #dfae55;
+  --flag-soft: #322817;
+  --input: #2e2a24;
+  --accent-text: #10201b;
+  --error-border: #5f382f;
+  --notice-border: #2f5b4f;
+  --warn-border: #5d4a24;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 30%), 0 1px 3px rgb(0 0 0 / 22%);
+  --shadow-md: 0 2px 4px rgb(0 0 0 / 28%), 0 6px 16px rgb(0 0 0 / 34%);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 2.5rem 1.75rem 6rem;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+/* Sentence case throughout. The size and weight carry the hierarchy; there is
+   no need to also shout. */
+h1,
+h2 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+h1 {
+  font-size: 2rem;
+  line-height: 1.15;
+}
+
+h2 {
+  font-size: 1.3rem;
+  line-height: 1.25;
+}
+
+h3 {
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0 0 0.35rem;
+}
+
+a {
+  color: var(--source);
+  text-decoration-color: color-mix(in srgb, currentcolor 35%, transparent);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: currentcolor;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Hidden until tabbed to. The first thing a keyboard user meets is otherwise
+   the theme switcher, three panels above anything they came here to do. */
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 20;
+  padding: 0.6rem 1rem;
+  border-radius: var(--r-sm);
+  background: var(--ink);
+  color: var(--ply);
+  box-shadow: var(--shadow-md);
+  text-decoration: none;
+}
+
+.skip:focus {
+  top: 1rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--source);
+  outline-offset: 2px;
+}
+
+/* ---- identity: the two sites --------------------------------------------- */
+
+.key-source {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--source);
+}
+
+.key-target {
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--target);
+}
+
+/* ---- layout -------------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+  margin-bottom: 2.25rem;
+}
+
+.masthead > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Raised on the paper rather than boxed in by a line. */
+.panel {
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  padding: 1.6rem 1.75rem 1.9rem;
+  margin-bottom: 1.75rem;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.panel-head p {
+  margin: 0;
+}
+
+/* The steps are a real sequence - choose, preview, copy - so they are numbered.
+   A soft disc reads as a marker rather than as a bare figure floating. */
+.step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-right: 0.7rem;
+  border-radius: 50%;
+  background: var(--source-soft);
+  color: var(--source);
+  font-family: var(--body);
+  font-size: 0.85rem;
+  font-weight: 700;
+  vertical-align: 0.08em;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+
+/* align-items: flex-end lines up the label BOX, and the label carries a bottom
+   margin - so the control inside it floated that far above the button next to
+   it. Only inside a row: elsewhere the margin is what separates a field from
+   whatever follows. */
+.row > label {
+  margin-bottom: 0;
+}
+
+/* The chosen sprint sits in the search row beside its clear link. */
+.sprint-chosen {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.45rem;
+}
+
+/* Sprint candidates: a flat list of buttons, name over dates, so a repeated
+   name is told apart at a glance. */
+.sprints {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sprints button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  text-align: left;
+  font-weight: 400;
+}
+
+.sprints button span {
+  font-size: 0.8rem;
+}
+
+/* The refresh diff: three columns, the old value muted and struck so the new
+   one reads as the change rather than the pair reading as a list. */
+table.diff {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+table.diff .was {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+table.diff .becomes {
+  font-weight: 500;
+}
+
+.tenants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+.tenant {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-md);
+  padding: 1.1rem 1.2rem;
+  background: var(--bg);
+}
+
+/* The two cards carry different amounts of text, so whatever ends each one is
+   pinned to the foot and the pair reads across rather than ragged. */
+.tenant > :last-child {
+  margin-top: auto;
+  margin-bottom: 0;
+}
+
+.tenant h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.92rem;
+}
+
+.tenant-source {
+  background: var(--source-soft);
+}
+
+.tenant-source h3 {
+  color: var(--source);
+}
+
+.tenant-target {
+  background: var(--target-soft);
+}
+
+.tenant-target h3 {
+  color: var(--target);
+}
+
+.host {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* ---- controls ------------------------------------------------------------ */
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 0.6rem;
+}
+
+label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 400;
+  margin: 0;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+select {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+}
+
+input[type="search"] {
+  min-width: 20rem;
+  flex: 1;
+}
+
+input[type="search"]:focus,
+select:focus,
+input[type="text"]:focus {
+  border-color: var(--source);
+}
+
+input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--target);
+}
+
+/*
+ * Every interactive surface moves. Before this the interface changed state
+ * instantly, which reads as a redraw rather than a response.
+ */
+button,
+input,
+select,
+summary,
+a {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 120ms ease;
+}
+
+button {
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  background: var(--ply);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--muted);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Pressed, so a click feels like it landed. */
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow: var(--shadow-md);
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--source);
+  padding: 0;
+  font-size: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+button.link:hover:not(:disabled) {
+  box-shadow: none;
+}
+
+.theme {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.swatch {
+  width: 2.1rem;
+  padding: 0.35rem 0;
+  text-align: center;
+}
+
+.swatch.active {
+  background: var(--source-soft);
+  border-color: var(--source);
+  color: var(--source);
+}
+
+/* ---- messages ------------------------------------------------------------ */
+
+.error,
+.notice,
+.warn {
+  border: 1px solid;
+  border-radius: var(--r-md);
+  padding: 0.85rem 1rem;
+  margin: 1rem 0;
+  font-size: 0.92rem;
+}
+
+.error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.notice {
+  background: var(--notice-bg);
+  border-color: var(--notice-border);
+}
+
+.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.error ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  margin-right: 0.45rem;
+  background: var(--bg);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.badge-warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.badge-error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.confirm {
+  border-radius: var(--r-md);
+  padding: 1.1rem 1.2rem;
+  background: var(--target-soft);
+}
+
+.confirm p {
+  margin-top: 0;
+}
+
+/* ---- tables -------------------------------------------------------------- */
+
+/* Counts, ids and board numbers line up in a column instead of shuffling. */
+table,
+.badge,
+.host,
+.steps,
+.jql {
+  font-variant-numeric: tabular-nums;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 0.75rem 0;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.6rem 0.65rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+/* Which site a column belongs to, stated rather than implied. */
+th.th-source {
+  color: var(--source);
+}
+
+th.th-target {
+  color: var(--target);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tr.chosen {
+  background: var(--flag-soft);
+}
+
+td.value {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  max-width: 22ch;
+  overflow-wrap: anywhere;
+}
+
+.value-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+/* Always present, so the text column keeps one width down the whole table. */
+.value-gutter {
+  flex: 0 0 1.15rem;
+}
+
+.value-body {
+  /* Without this a flex child refuses to shrink and the clamp never engages. */
+  min-width: 0;
+  flex: 1;
+}
+
+.value-toggle {
+  display: block;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.value-toggle:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
+.value-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Four lines, then the toggle. line-clamp counts VISUAL lines, so one long
+   unbroken string of JSON clamps the same way a multi-line one does. */
+.value-text.clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+td.value button.link {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.jql {
+  background: var(--bg);
+  border-radius: var(--r-sm);
+  padding: 0.75rem 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  overflow-x: auto;
+}
+
+/* ---- plans --------------------------------------------------------------- */
+
+.plan {
+  border-radius: var(--r-md);
+  padding: 1.25rem 1.35rem;
+  margin-bottom: 1.25rem;
+  background: var(--bg);
+}
+
+.plan.blocked {
+  background: var(--error-bg);
+}
+
+.plan h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.plan header p {
+  margin: 0.3rem 0;
+}
+
+/*
+ * Prose gets a measure. The container is wide because the tables need it; a
+ * sentence of explanation does not, and reads badly stretched that far.
+ */
+.division-blurb,
+.hint,
+.confirm p,
+.outcome p,
+.plan header p,
+.modal p {
+  max-width: 68ch;
+  text-wrap: pretty;
+}
+
+.hint {
+  margin: 0.3rem 0 0.9rem;
+  font-size: 0.88rem;
+}
+
+/* Before the first search the panel was simply blank below the form. */
+.blank {
+  border-radius: var(--r-md);
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+/* An <a> that has to read as a button: sign-in is a link, because a popup that
+   is blocked must still fall back to a plain navigation. */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.masthead-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.signin {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.epics-head {
+  margin-top: 1.5rem;
+}
+
+.blank strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.blank code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--source);
+}
+
+/* ---- preview divisions ---------------------------------------------------- */
+
+/*
+ * One division per status rather than one long table. Blockers and near-misses
+ * are open; dropped and mapped are folded away, because on a real ticket those
+ * are the eighty rows nobody reads to decide whether to copy it.
+ */
+.division {
+  border-radius: var(--r-md);
+  margin: 0.85rem 0;
+  padding: 0.75rem 1.1rem 0.9rem;
+  background: var(--panel);
+}
+
+.division > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.division > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A disclosure caret drawn rather than borrowed, so it rotates with the state. */
+.division > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentcolor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  color: var(--muted);
+  transition: transform 180ms ease;
+}
+
+.division[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.division-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.division-blurb {
+  margin: 0.4rem 0 0;
+  font-size: 0.88rem;
+}
+
+/* Fixed, so all four divisions line up with one another down the page. */
+.division table {
+  table-layout: fixed;
+}
+
+.col-field {
+  width: 18%;
+}
+
+.col-value {
+  width: 21%;
+}
+
+.col-why {
+  width: 40%;
+}
+
+/* The tint says which division this is before the heading is read. */
+.division-missingrequired {
+  background: var(--error-bg);
+}
+
+.division-missingrequired .division-title {
+  color: var(--error-text);
+}
+
+.division-unmappable {
+  background: var(--warn-bg);
+}
+
+.division-unmappable .division-title {
+  color: var(--warn-text);
+}
+
+.division-mapped .division-title {
+  color: var(--target);
+}
+
+.division-dropped td {
+  color: var(--muted);
+}
+
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  background: var(--bg);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill-mapped,
+.pill-created {
+  background: var(--target-soft);
+  color: var(--target);
+}
+
+.pill-unmappable,
+.pill-createdwithproblems,
+.pill-skipped {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.pill-missingrequired,
+.pill-failed {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.allowed {
+  font-size: 0.82rem;
+}
+
+/* ---- results ------------------------------------------------------------- */
+
+.outcome {
+  border-left: 4px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  background: var(--bg);
+}
+
+.outcome header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.outcome p {
+  margin: 0.35rem 0;
+  font-size: 0.92rem;
+}
+
+.outcome-created {
+  border-left-color: var(--target);
+}
+
+.outcome-createdwithproblems,
+.outcome-skipped {
+  border-left-color: var(--flag);
+}
+
+.outcome-failed {
+  border-left-color: var(--alarm);
+}
+
+.steps {
+  margin: 0.5rem 0 0;
+  padding-left: 1.15rem;
+  font-size: 0.88rem;
+}
+
+.steps li.bad {
+  color: var(--warn-text);
+}
+
+/* ---- back to top --------------------------------------------------------- */
+
+.to-top {
+  position: fixed;
+  right: 1.75rem;
+  bottom: 1.75rem;
+  z-index: 10;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ply);
+  box-shadow: var(--shadow-md);
+}
+
+/* ---- modal --------------------------------------------------------------- */
+
+.modal {
+  max-width: 34rem;
+  border: none;
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  color: var(--text);
+  padding: 1.75rem;
+  box-shadow: var(--shadow-md);
+}
+
+.modal::backdrop {
+  background: rgb(42 37 32 / 45%);
+}
+
+.modal h2 {
+  margin-bottom: 0.6rem;
+}
+
+.modal h3 {
+  margin-top: 1.25rem;
+}
+
+.modal ol,
+.modal ul.failures {
+  padding-left: 1.2rem;
+  font-size: 0.92rem;
+}
+
+.modal ul.failures {
+  list-style: none;
+  padding-left: 0;
+}
+
+.modal ul.failures li {
+  border-radius: var(--r-sm);
+  background: var(--error-bg);
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.modal code {
+  background: var(--bg);
+  border-radius: var(--r-xs);
+  padding: 0.1rem 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+
+/* ---- motion and small screens --------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 1.75rem 1rem 5rem;
+  }
+
+  .panel {
+    padding: 1.25rem 1.1rem 1.4rem;
+  }
+
+  h1 {
+    font-size: 1.65rem;
+  }
+
+  input[type="search"] {
+    min-width: 0;
+  }
+}

@@ -1,0 +1,18 @@
+# Normalise line endings on the way into the repo. Without this a checkout on
+# another machine can rewrite every file, and the first diff anyone sees is the
+# entire repository.
+* text=auto
+
+*.cs   text diff=csharp
+*.ts   text
+*.tsx  text
+*.css  text
+*.json text
+*.md   text
+*.ps1  text
+*.pubxml text
+*.csproj text
+
+# Never normalise these.
+*.png  binary
+*.zip  binary
