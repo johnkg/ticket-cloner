@@ -1,0 +1,50 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>YOUR_USER_SECRETS_ID</UserSecretsId>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <SpaRoot>$(MSBuildProjectDirectory)\..\..\ClientApp\</SpaRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+  </ItemGroup>
+
+  <!-- The Web SDK globs appsettings*.json into the publish output, which swept
+       appsettings.Local.json - the one file that holds a live API token - into
+       every deployment. Verified: a publish carried two real tokens into the
+       output folder. Neither of these belongs on a server. -->
+  <ItemGroup>
+    <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Local.example.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <!-- The SPA is only built on publish, so day-to-day dotnet build stays fast.
+       In development Vite serves it instead; see the proxy in vite.config.ts. -->
+  <Target Name="RestoreSpa" Condition="!Exists('$(SpaRoot)node_modules')">
+    <Message Importance="high" Text="Restoring npm packages for the SPA..." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm ci" />
+  </Target>
+
+  <Target Name="BuildSpa" DependsOnTargets="RestoreSpa" AfterTargets="ComputeFilesToPublish">
+    <Message Importance="high" Text="Building the SPA into wwwroot..." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+
+    <ItemGroup>
+      <SpaDistFiles Include="$(SpaRoot)dist\**" />
+
+      <!-- Added to the publish output directly rather than copied into the source
+           tree, so nothing generated ever lands in src/. -->
+      <ResolvedFileToPublish Include="@(SpaDistFiles-&gt;'%(FullPath)')" Exclude="@(ResolvedFileToPublish)">
+        <RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

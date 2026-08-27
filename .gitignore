@@ -1,0 +1,56 @@
+# Build output. The publish glob is anchored with a leading slash so it matches
+# only top-level output folders - unanchored, and with Git's case-insensitive
+# matching on Windows, "publish*/" also swallows Properties/PublishProfiles/.
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+/publish*/
+
+# Packaged deployments. ticket-cloner.zip is ~46 MB of runtime and would sit in
+# the history forever; ship a release artifact through GitHub Releases instead
+# of committing it.
+*.zip
+
+# SPA build output - generated into wwwroot by the BuildSpa target on publish
+ClientApp/dist/
+src/TicketCloner.Api/wwwroot/
+
+# Node
+node_modules/
+
+# Serilog file sink output (path is relative to content root)
+logs/
+*.log
+
+# Editors / tooling
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Per-machine Claude Code permissions - absolute paths from one developer's box,
+# of no use to anyone else. Currently only excluded by a GLOBAL ignore file on
+# the original machine, which does not travel with a clone.
+.claude/settings.local.json
+
+# Local environment.
+#
+# NOTE: appsettings.json is deliberately NOT ignored - it carries the tenant
+# configuration, which belongs in the repo. It is also where the credentials now
+# go, so before committing it, check that the Credentials section is still empty.
+# The safer habit is to leave the copy under src/ blank and fill in the one in
+# the publish output.
+*.env
+.env.local
+appsettings.Local.json
+
+# Phase 0 tenant profiles are safe to keep (they hold no credentials), but the
+# raw issue dumps a surface run can produce are not - keep those out.
+phase0-*-issues.json
+
+# Powershell scripts
+*.ps1
+
+.DS_Store

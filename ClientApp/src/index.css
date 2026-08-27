@@ -1,0 +1,617 @@
+:root {
+  --bg: #ffffff;
+  --text: #1a1a1a;
+  --muted: #6b7280;
+  --border: #d8dbe0;
+  --panel: #fbfbfc;
+  --input: #ffffff;
+  --accent: #0b5cd5;
+  --accent-text: #ffffff;
+  --flag: #fff6e0;
+  --error-bg: #fdecec;
+  --error-border: #f2b8b5;
+  --error-text: #a11c17;
+  --notice-bg: #e9f6ec;
+  --notice-border: #b7dfc2;
+  --warn-bg: #fff6e0;
+  --warn-border: #e8ce8f;
+  --warn-text: #a15c00;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+
+  /* Named per theme rather than left as 'light dark', or scrollbars, selects
+     and native controls would follow the browser while the page follows the
+     chosen theme. */
+  color-scheme: light;
+}
+
+/*
+ * Dark values live in a named block used twice: once for "follow the system"
+ * (guarded so an explicit light choice still wins) and once for the explicit
+ * dark choice. Defining them only inside the media query would leave the
+ * toggle unable to turn dark on in a light OS.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #16181d;
+    --text: #e8eaed;
+    --muted: #9aa1ad;
+    --border: #333842;
+    --panel: #1c1f26;
+    --input: #21252d;
+    --accent: #4b8ef7;
+    --accent-text: #0d1117;
+    --flag: #3a2f14;
+    --error-bg: #3a1f1f;
+    --error-border: #7a3b38;
+    --error-text: #f4b8b4;
+    --notice-bg: #1c3324;
+    --notice-border: #2f5c3f;
+    --warn-bg: #3a2f14;
+    --warn-border: #6b5620;
+    --warn-text: #e0a34a;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #16181d;
+  --text: #e8eaed;
+  --muted: #9aa1ad;
+  --border: #333842;
+  --panel: #1c1f26;
+  --input: #21252d;
+  --accent: #4b8ef7;
+  --accent-text: #0d1117;
+  --flag: #3a2f14;
+  --error-bg: #3a1f1f;
+  --error-border: #7a3b38;
+  --error-text: #f4b8b4;
+  --notice-bg: #1c3324;
+  --notice-border: #2f5c3f;
+  --warn-bg: #3a2f14;
+  --warn-border: #6b5620;
+  --warn-text: #e0a34a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 5rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 0 0 0.25rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- layout ------------------------------------------------------------- */
+
+.masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.panel-head p {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.tenants {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.tenant {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  background: var(--bg);
+}
+
+.tenant h3 {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.host {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* ---- controls ----------------------------------------------------------- */
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='search'],
+select {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+}
+
+input[type='search'] {
+  min-width: 320px;
+  flex: 1;
+}
+
+button {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.theme {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.swatch {
+  width: 2rem;
+  padding: 0.3rem 0;
+  text-align: center;
+}
+
+.swatch.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- messages ----------------------------------------------------------- */
+
+.error,
+.notice,
+.warn {
+  border: 1px solid;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.75rem 0;
+  font-size: 0.9rem;
+}
+
+.error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.notice {
+  background: var(--notice-bg);
+  border-color: var(--notice-border);
+}
+
+.warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.error ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.badge {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  margin-right: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.badge-warn {
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.badge-error {
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.confirm {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.8rem;
+  background: var(--bg);
+}
+
+.confirm p {
+  margin-top: 0;
+}
+
+/* ---- tables ------------------------------------------------------------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+tr.chosen {
+  background: var(--flag);
+}
+
+td.value {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+  max-width: 22ch;
+  overflow-wrap: anywhere;
+}
+
+.jql {
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+/* ---- plans -------------------------------------------------------------- */
+
+.plan {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.8rem;
+  margin-bottom: 1rem;
+  background: var(--bg);
+}
+
+.plan.blocked {
+  border-color: var(--error-border);
+}
+
+.plan header p {
+  margin: 0.2rem 0;
+}
+
+/* ---- preview divisions --------------------------------------------------- */
+
+/*
+ * One division per status rather than one long table. Blockers and near-misses
+ * are open; dropped and mapped are folded away, because on a real ticket those
+ * are the eighty rows nobody reads to decide whether to copy it.
+ */
+.division {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  margin: 0.6rem 0;
+  padding: 0.35rem 0.7rem;
+  background: var(--bg);
+}
+
+.division > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  cursor: pointer;
+}
+
+.division-title {
+  font-weight: 600;
+}
+
+.division-blurb {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+/* Fixed, so all four divisions line up with one another down the page. */
+.division table {
+  table-layout: fixed;
+}
+
+.col-field {
+  width: 18%;
+}
+
+.col-value {
+  width: 21%;
+}
+
+.col-why {
+  width: 40%;
+}
+
+/* The tint says which division this is before the heading is read. */
+.division-missingrequired {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+.division-unmappable {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.division-mapped {
+  border-left-color: var(--notice-border);
+}
+
+.division-dropped td {
+  color: var(--muted);
+}
+
+.pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.pill-mapped,
+.pill-created {
+  border-color: var(--notice-border);
+}
+
+.pill-unmappable,
+.pill-createdwithproblems,
+.pill-skipped {
+  border-color: var(--warn-border);
+  color: var(--warn-text);
+}
+
+.pill-missingrequired,
+.pill-failed {
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.allowed {
+  font-size: 0.8rem;
+}
+
+/* ---- results ------------------------------------------------------------ */
+
+.outcome {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg);
+}
+
+.outcome header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.outcome p {
+  margin: 0.3rem 0;
+  font-size: 0.9rem;
+}
+
+.outcome-created {
+  border-left-color: var(--notice-border);
+}
+
+.outcome-createdwithproblems,
+.outcome-skipped {
+  border-left-color: var(--warn-border);
+}
+
+.outcome-failed {
+  border-left-color: var(--error-border);
+}
+
+.steps {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.steps li.bad {
+  color: var(--warn-text);
+}
+
+/* ---- back to top -------------------------------------------------------- */
+
+.to-top {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 25%);
+}
+
+/* ---- modal -------------------------------------------------------------- */
+
+.modal {
+  max-width: 34rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 1.25rem;
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal h2 {
+  margin-bottom: 0.5rem;
+}
+
+.modal h3 {
+  margin-top: 1rem;
+}
+
+.modal ol,
+.modal ul.failures {
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.modal ul.failures {
+  list-style: none;
+  padding-left: 0;
+}
+
+.modal ul.failures li {
+  border-left: 3px solid var(--error-border);
+  padding-left: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.modal code {
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  font-size: 0.85em;
+}

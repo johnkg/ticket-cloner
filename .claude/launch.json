@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ticketcloner-api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["watch", "--project", "src/TicketCloner.Api", "--non-interactive"],
+      "port": 5002
+    },
+    {
+      "name": "ticketcloner-clientapp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "ClientApp"],
+      "port": 5174
+    }
+  ]
+}

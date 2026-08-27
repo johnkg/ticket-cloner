@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticket Cloner</title>
+    <script>
+      // Applied before the first paint, or a saved dark theme would show a
+      // white page for as long as the bundle takes to load.
+      try {
+        var saved = localStorage.getItem('ticketcloner.theme')
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.setAttribute('data-theme', saved)
+        }
+      } catch (e) {
+        // Storage unavailable - fall through to prefers-color-scheme.
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
