@@ -30,50 +30,35 @@ public class ConfigEndpointTests
 
         Assert.NotNull(config);
 
-        // The trap this guards: the project named TARGET_PROJECT is on the YOUR_COMPANY
-        // tenant, and the project named YOUR_SOURCE_PROJECT is on the
-        // SOURCE_COMPANY tenant. Anything that resolves a tenant by project name
+        // The trap this guards: the project named TGT is on the target-site
+        // tenant, and the project named Source Project is on the
+        // source-site tenant. Anything that resolves a tenant by project name
         // gets it exactly backwards.
-        Assert.Equal("source-domain.atlassian.net", config.Source.Host);
-        Assert.Equal("SOURCE_PROJECT", config.Source.ProjectKey);
+        Assert.Equal("source.example.invalid", config.Source.Host);
+        Assert.Equal("SRC", config.Source.ProjectKey);
 
-        Assert.Equal("target-domain.atlassian.net", config.Target.Host);
-        Assert.Equal("TARGET_PROJECT", config.Target.ProjectKey);
+        Assert.Equal("target.example.invalid", config.Target.Host);
+        Assert.Equal("TGT", config.Target.ProjectKey);
     }
 
     [Fact]
-    public async Task Config_reports_configured_false_when_no_credentials_are_stored()
+    public async Task Config_says_nothing_about_credentials_at_all()
     {
-        using var app = new TestApp();
-        using var client = app.CreateClient();
-
-        var config = await client.GetFromJsonAsync<ConfigResponse>("/api/config");
-
-        Assert.NotNull(config);
-        Assert.False(config.Source.Configured);
-        Assert.False(config.Target.Configured);
-    }
-
-    [Fact]
-    public async Task Config_never_returns_a_token()
-    {
-        using var app = new TestApp(configuration: new Dictionary<string, string?>
-        {
-            ["Credentials:SourceEmail"] = "source@example.com",
-            ["Credentials:SourceApiToken"] = "source-token-should-never-be-returned",
-            ["Credentials:TargetEmail"] = "target@example.com",
-            ["Credentials:TargetApiToken"] = "target-token-should-never-be-returned",
-        });
+        // It used to report whether a token was configured and for which email.
+        // The tool stores no token now, and whether a person can reach a tenant
+        // is what /api/auth/status answers - so this endpoint describes the
+        // wiring and nothing else. A credential echoed here would be a leak on
+        // an endpoint that is deliberately unguarded.
+        using var app = new TestApp(signedIn: true);
         using var client = app.CreateClient();
 
         var body = await client.GetStringAsync("/api/config");
 
-        Assert.DoesNotContain("source-token-should-never-be-returned", body);
-        Assert.DoesNotContain("target-token-should-never-be-returned", body);
+        Assert.DoesNotContain(TestApp.AccessToken, body);
+        Assert.DoesNotContain(TestApp.RefreshToken, body);
+        Assert.DoesNotContain(TestApp.SourceCloudId, body);
+        Assert.DoesNotContain(TestApp.TargetCloudId, body);
 
-        // The emails are fine to show - they are how a user recognises which
-        // account an instance is holding.
-        Assert.Contains("source@example.com", body);
-        Assert.Contains("target@example.com", body);
+        Assert.DoesNotContain("configured", body, StringComparison.OrdinalIgnoreCase);
     }
 }

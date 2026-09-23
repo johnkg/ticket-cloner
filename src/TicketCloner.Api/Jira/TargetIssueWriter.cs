@@ -11,37 +11,15 @@ public sealed record CreatedIssue(string Id, string Key, string Url);
 /// <summary>
 /// Every write this tool performs. All of it lands on the target tenant; the
 /// client refuses to send any of it to the source.
+///
+/// Finding an existing copy used to live here too. It is a read, so it moved to
+/// ExistingCopyFinder, where preview can reach it without reaching this.
 /// </summary>
 public sealed class TargetIssueWriter(
     AtlassianClientFactory clients,
     IOptions<AtlassianOptions> options)
 {
-    private TenantOptions Target => options.Value.Target;
-
     private AtlassianClient Client => clients.For(Tenant.Target);
-
-    /// <summary>
-    /// The duplicate check. A remote link would be the natural place to record
-    /// where a copy came from, but remote links are not JQL-searchable - hence
-    /// a real custom field holding the source key.
-    /// </summary>
-    public async Task<string?> FindExistingCopyAsync(
-        string provenanceFieldName,
-        string sourceKey,
-        CancellationToken cancellationToken)
-    {
-        var jql = $"project = {Escape(Target.ProjectKey)} " +
-                  $"AND \"{Escape(provenanceFieldName)}\" ~ \"{Escape(sourceKey)}\"";
-
-        var response = await Client.PostAsync<JsonNode>("rest/api/3/search/jql", new Dictionary<string, object?>
-        {
-            ["jql"] = jql,
-            ["maxResults"] = 1,
-            ["fields"] = new[] { "summary" },
-        }, cancellationToken);
-
-        return (response?["issues"] as JsonArray)?.FirstOrDefault()?["key"]?.GetValue<string>();
-    }
 
     public async Task<CreatedIssue> CreateAsync(JsonObject fields, CancellationToken cancellationToken)
     {
@@ -54,7 +32,7 @@ public sealed class TargetIssueWriter(
         return new CreatedIssue(
             Id: created?["id"]?.GetValue<string>() ?? "",
             Key: key,
-            Url: new Uri(Client.BaseAddress, $"browse/{key}").ToString());
+            Url: new Uri(Client.SiteUri, $"browse/{key}").ToString());
     }
 
     /// <summary>
@@ -95,6 +73,23 @@ public sealed class TargetIssueWriter(
             {
                 ["fields"] = new JsonObject { ["description"] = description.DeepClone() },
             },
+            cancellationToken);
+
+    /// <summary>
+    /// A field update on an existing issue - the same PUT as the description,
+    /// with whatever fields the caller hands over.
+    ///
+    /// Exists so a second pass can set something the create was deliberately
+    /// not trusted with. On the create a rejected value costs the whole ticket;
+    /// here it costs one field and reports itself.
+    /// </summary>
+    public Task UpdateFieldsAsync(
+        string issueKey,
+        JsonObject fields,
+        CancellationToken cancellationToken) =>
+        Client.PutAsync<JsonNode>(
+            $"rest/api/3/issue/{Uri.EscapeDataString(issueKey)}",
+            new JsonObject { ["fields"] = fields },
             cancellationToken);
 
     public Task AddCommentAsync(string issueKey, JsonNode body, CancellationToken cancellationToken) =>
@@ -139,9 +134,6 @@ public sealed class TargetIssueWriter(
 
         return id is null
             ? null
-            : new Uri(Client.BaseAddress, $"rest/api/3/attachment/content/{id}").ToString();
+            : new Uri(Client.SiteUri, $"rest/api/3/attachment/content/{id}").ToString();
     }
-
-    private static string Escape(string value) =>
-        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }

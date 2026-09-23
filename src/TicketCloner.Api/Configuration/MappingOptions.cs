@@ -25,7 +25,7 @@ public sealed class MappingOptions
     /// only. Anyone holding a single Atlassian account across both tenants
     /// needs no entry: the accountId is already the same on each.
     ///
-    /// This table exists because source-company hides email addresses, so there is
+    /// This table exists because source-site hides email addresses, so there is
     /// no way to match those people programmatically.
     /// </summary>
     public Dictionary<string, string> Users { get; init; } = new(StringComparer.OrdinalIgnoreCase);

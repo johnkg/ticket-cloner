@@ -114,7 +114,7 @@ public sealed class AdfRewriter
     }
 
     /// <summary>
-    /// A smartlink to SOURCE_PROJECT-1234 means nothing on the target, so a relative URL is
+    /// A smartlink to SRC-1234 means nothing on the target, so a relative URL is
     /// made absolute against the SOURCE site. It stops being a live card and
     /// becomes a link that at least goes somewhere real.
     /// </summary>

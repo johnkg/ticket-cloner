@@ -1,7 +1,7 @@
 namespace TicketCloner.Api.Atlassian;
 
 /// <summary>
-/// Which of the two Atlassian sites. Never "TARGET_PROJECT" or "YOUR_COMPANY" - the project
+/// Which of the two Atlassian sites. Never "TGT" or "target-site" - the project
 /// names are inverted across the tenants and a reader resolves them wrongly.
 /// </summary>
 public enum Tenant
@@ -23,8 +23,4 @@ public static class TenantExtensions
         Tenant.Target => "target",
         _ => throw new ArgumentOutOfRangeException(nameof(tenant), tenant, null),
     };
-
-    public static string EmailHeader(this Tenant tenant) => $"X-{tenant}-Email";
-
-    public static string TokenHeader(this Tenant tenant) => $"X-{tenant}-Token";
 }

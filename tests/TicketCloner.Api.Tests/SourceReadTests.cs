@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using TicketCloner.Api.Atlassian;
 using TicketCloner.Api.Contracts;
 using TicketCloner.Api.Tests.Infrastructure;
 
@@ -7,16 +8,10 @@ namespace TicketCloner.Api.Tests;
 
 public class SourceReadTests
 {
-    private static Dictionary<string, string?> SourceConfigured() => new()
-    {
-        ["Credentials:SourceEmail"] = "source-account@example.com",
-        ["Credentials:SourceApiToken"] = "source-only-token",
-    };
-
     private static (TestApp App, StubAtlassian Stub) Sut()
     {
         var stub = new StubAtlassian(SourceTenantFake.Handler);
-        return (new TestApp(stub, SourceConfigured()), stub);
+        return (new TestApp(stub, signedIn: true), stub);
     }
 
     // ------------------------------------------------------------ the JQL
@@ -57,7 +52,7 @@ public class SourceReadTests
         var response = await client.GetFromJsonAsync<IssueListResponse>("/api/source/issues");
 
         Assert.NotNull(response);
-        Assert.StartsWith("project = SOURCE_PROJECT", response.Jql);
+        Assert.StartsWith("project = SRC", response.Jql);
     }
 
     [Fact]
@@ -67,11 +62,83 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var response = await client.GetFromJsonAsync<IssueListResponse>("/api/source/issues?search=SOURCE_PROJECT-1234");
+        var response = await client.GetFromJsonAsync<IssueListResponse>("/api/source/issues?search=SRC-1234");
 
         Assert.NotNull(response);
-        Assert.Contains("key = SOURCE_PROJECT-1234", response.Jql);
+        Assert.Contains("key = SRC-1234", response.Jql);
         Assert.DoesNotContain("summary ~", response.Jql);
+    }
+
+    [Theory]
+    [InlineData("SRC-1234,SRC-5678")]
+    [InlineData("SRC-1234, SRC-5678")]
+    [InlineData("SRC-1234 SRC-5678")]
+    [InlineData("SRC-1234;SRC-5678")]
+    [InlineData("SRC-1234\nSRC-5678")]
+    [InlineData("SRC-1234  SRC-5678  ")]
+    public async Task Several_keys_at_once_become_one_IN_clause(string search)
+    {
+        // Pasting a list is how a batch gets picked out in one go, and it comes
+        // from every direction - a comma-separated line, a column out of a
+        // spreadsheet, whatever somebody had to hand.
+        var (app, stub) = Sut();
+        using var _ = app;
+        using var client = app.CreateClient();
+
+        var response = await client.GetFromJsonAsync<IssueListResponse>(
+            $"/api/source/issues?search={Uri.EscapeDataString(search)}");
+
+        Assert.NotNull(response);
+        Assert.Contains("key IN (SRC-1234, SRC-5678)", response.Jql);
+        Assert.DoesNotContain("summary ~", response.Jql);
+    }
+
+    [Fact]
+    public async Task The_same_key_twice_is_only_asked_for_once()
+    {
+        // Otherwise a careless paste turns into two copies of one ticket.
+        var (app, stub) = Sut();
+        using var _ = app;
+        using var client = app.CreateClient();
+
+        var response = await client.GetFromJsonAsync<IssueListResponse>(
+            "/api/source/issues?search=SRC-1234,%20SRC-1234");
+
+        Assert.NotNull(response);
+        Assert.Contains("key = SRC-1234", response.Jql);
+        Assert.DoesNotContain("IN", response.Jql[response.Jql.IndexOf("key", StringComparison.Ordinal)..]);
+    }
+
+    [Fact]
+    public async Task A_list_with_one_non_key_in_it_falls_back_to_a_text_search()
+    {
+        // Copying the subset it happened to recognise would be worse than
+        // searching for the words: silently doing less than asked.
+        var (app, stub) = Sut();
+        using var _ = app;
+        using var client = app.CreateClient();
+
+        var response = await client.GetFromJsonAsync<IssueListResponse>(
+            "/api/source/issues?search=SRC-1234,%20example%20portal");
+
+        Assert.NotNull(response);
+        Assert.DoesNotContain("key IN", response.Jql);
+        Assert.Contains("summary ~", response.Jql);
+    }
+
+    [Fact]
+    public async Task A_key_from_another_project_is_not_treated_as_a_key()
+    {
+        var (app, stub) = Sut();
+        using var _ = app;
+        using var client = app.CreateClient();
+
+        var response = await client.GetFromJsonAsync<IssueListResponse>(
+            "/api/source/issues?search=TGT-1234,%20SRC-1234");
+
+        Assert.NotNull(response);
+        Assert.DoesNotContain("key IN", response.Jql);
+        Assert.Contains("summary ~", response.Jql);
     }
 
     [Fact]
@@ -81,10 +148,10 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var response = await client.GetFromJsonAsync<IssueListResponse>("/api/source/issues?search=abn");
+        var response = await client.GetFromJsonAsync<IssueListResponse>("/api/source/issues?search=input");
 
         Assert.NotNull(response);
-        Assert.Contains("summary ~ \"abn\"", response.Jql);
+        Assert.Contains("summary ~ \"input\"", response.Jql);
     }
 
     [Fact]
@@ -95,7 +162,7 @@ public class SourceReadTests
         using var client = app.CreateClient();
 
         var response = await client.GetFromJsonAsync<IssueListResponse>(
-            "/api/source/issues?search=%22%20OR%20project%20%3D%20AFG");
+            "/api/source/issues?search=%22%20OR%20project%20%3D%20TGT");
 
         Assert.NotNull(response);
         Assert.Contains("\\\"", response.Jql);
@@ -117,15 +184,15 @@ public class SourceReadTests
         Assert.Equal(2, response.Issues.Count);
 
         var first = response.Issues[0];
-        Assert.Equal("SOURCE_PROJECT-1234", first.Key);
+        Assert.Equal("SRC-1234", first.Key);
         Assert.Equal("Bug", first.IssueType);
         Assert.Equal("Open", first.Status);
-        Assert.Equal("Ray Tester", first.Reporter);
+        Assert.Equal("Example Reporter", first.Reporter);
         Assert.Null(first.Assignee);
 
         // Absolute, and pointing at the SOURCE site - a bare key is meaningless
         // once it is sitting in the target's UI.
-        Assert.Equal("https://source-domain.atlassian.net/browse/SOURCE_PROJECT-1234", first.Url);
+        Assert.Equal("https://source.example.invalid/browse/SRC-1234", first.Url);
     }
 
     [Fact]
@@ -163,23 +230,23 @@ public class SourceReadTests
     [Fact]
     public async Task Fields_are_surfaced_by_name_not_by_id()
     {
-        // customfield_EXAMPLE_ID on the source is a different field on the target,
+        // customfield_70010 on the source is a different field on the target,
         // so the name is the only thing worth mapping on.
         var (app, stub) = Sut();
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
 
-        var storyPoints = issue.Fields.Single(field => field.FieldId == "customfield_EXAMPLE_ID");
+        var storyPoints = issue.Fields.Single(field => field.FieldId == "customfield_70010");
         Assert.Equal("Story point estimate", storyPoints.Name);
         Assert.True(storyPoints.IsCustom);
 
         // The issue call specifically - not the comments call, which shares the
-        // /issue/SOURCE_PROJECT-1234 prefix.
-        var issueRequest = stub.Requests.Single(request => request.Path.EndsWith("/issue/SOURCE_PROJECT-1234"));
+        // /issue/SRC-1234 prefix.
+        var issueRequest = stub.Requests.Single(request => request.Path.EndsWith("/issue/SRC-1234"));
         Assert.Contains("expand=names", issueRequest.Uri.Query);
     }
 
@@ -192,11 +259,11 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
-        Assert.DoesNotContain(issue.Fields, field => field.FieldId == "customfield_99999");
-        Assert.DoesNotContain(issue.Fields, field => field.FieldId == "customfield_13621");
+        Assert.DoesNotContain(issue.Fields, field => field.FieldId == "customfield_70016");
+        Assert.DoesNotContain(issue.Fields, field => field.FieldId == "customfield_70012");
     }
 
     [Fact]
@@ -206,13 +273,13 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
         Assert.DoesNotContain(issue.Fields, field => field.FieldId is "summary" or "description" or "attachment");
 
-        Assert.Equal("Broker portal rejects valid ABN", issue.Summary);
-        Assert.Equal(["broker", "abn"], issue.Labels);
+        Assert.Equal("Example portal rejects valid input", issue.Summary);
+        Assert.Equal(["example", "input"], issue.Labels);
     }
 
     [Fact]
@@ -224,7 +291,7 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
         Assert.NotNull(issue.Description);
@@ -238,7 +305,7 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
         Assert.Equal(2, issue.Comments.Count);
@@ -252,7 +319,7 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
         var attachment = Assert.Single(issue.Attachments);
@@ -271,7 +338,7 @@ public class SourceReadTests
         using var _ = app;
         using var client = app.CreateClient();
 
-        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SOURCE_PROJECT-1234");
+        var issue = await client.GetFromJsonAsync<SourceIssue>("/api/source/issues/SRC-1234");
 
         Assert.NotNull(issue);
         Assert.NotNull(issue.Reporter);
@@ -298,24 +365,21 @@ public class SourceReadTests
     }
 
     [Fact]
-    public async Task Source_reads_never_carry_the_target_credential()
+    public async Task Source_reads_all_go_to_the_source_cloud_id()
     {
+        // The grant reaches both sites, which is the only way this proves
+        // anything: every call a source read makes has to pick the source one.
         var stub = new StubAtlassian(SourceTenantFake.Handler);
-        using var app = new TestApp(stub, new Dictionary<string, string?>
-        {
-            ["Credentials:SourceEmail"] = "source-account@example.com",
-            ["Credentials:SourceApiToken"] = "source-only-token",
-            ["Credentials:TargetEmail"] = "target-account@example.com",
-            ["Credentials:TargetApiToken"] = "target-only-token",
-        });
+        using var app = new TestApp(stub, signedIn: true);
         using var client = app.CreateClient();
 
-        await client.GetAsync("/api/source/issues/SOURCE_PROJECT-1234");
+        await client.GetAsync("/api/source/issues/SRC-1234");
 
+        Assert.NotEmpty(stub.Requests);
         Assert.All(stub.Requests, request =>
         {
-            Assert.Equal("source-domain.atlassian.net", request.Host);
-            Assert.True(request.CarriedCredentialsFor("source-account@example.com", "source-only-token"));
+            Assert.Equal(Tenant.Source, request.Tenant);
+            Assert.True(request.CarriedBearer(TestApp.AccessToken));
         });
     }
 }

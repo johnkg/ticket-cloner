@@ -14,19 +14,21 @@ public static class ApiEndpoints
     {
         var api = app.MapGroup("/api");
 
+        // Inside the group, so /api/auth/callback is a real route rather than
+        // something the /api catch-all answers with a 404.
+        api.MapAuth();
+
         // Deliberately NOT credentials-guarded: the UI reads this before it has
         // any credentials, to decide what to prompt for.
         api.MapGet("/config", (
             IOptions<AtlassianOptions> atlassian,
-            IOptions<StoredCredentialsOptions> stored,
             IOptions<MappingOptions> mapping) =>
         {
             var options = atlassian.Value;
-            var credentials = stored.Value;
 
             return new ConfigResponse(
-                Describe(options.Source, credentials.SourceEmail, credentials.SourceApiToken),
-                Describe(options.Target, credentials.TargetEmail, credentials.TargetApiToken),
+                Describe(options.Source),
+                Describe(options.Target),
                 mapping.Value.FallbackIssueType);
         });
 
@@ -47,6 +49,26 @@ public static class ApiEndpoints
 
     private static void MapTargetMetadata(IEndpointRouteBuilder api)
     {
+        // Read separately from the plan rather than folded into it: the sprint
+        // is one answer for the whole run, and repeating it on every ticket
+        // would invite the two to disagree.
+        api.MapGet("/target/active-sprint", async (
+                SprintReader sprints,
+                CancellationToken cancellationToken) =>
+                Results.Ok(await sprints.GetActiveAsync(cancellationToken)))
+            .RequireTenant(Tenant.Target);
+
+        // Every sprint on the target board, active first then newest to oldest,
+        // so a run can be filed into a chosen sprint rather than only the
+        // current one. Ids from here go into ApplyRequest.SprintId and nowhere else.
+        api.MapGet("/target/sprints", async (
+                SprintReader sprints,
+                IOptions<AtlassianOptions> options,
+                CancellationToken cancellationToken,
+                string? search = null) =>
+                await ListSprints(sprints, Tenant.Target, options.Value.Target.BoardId, search, cancellationToken))
+            .RequireTenant(Tenant.Target);
+
         api.MapGet("/target/issuetypes", async (
                 TargetMetadataReader metadata,
                 CancellationToken cancellationToken) =>
@@ -107,6 +129,23 @@ public static class ApiEndpoints
             .RequireTenant(Tenant.Target);
     }
 
+    private static async Task<IResult> ListSprints(
+        SprintReader sprints, Tenant tenant, int board, string? search, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var found = await sprints.ListAsync(tenant, search, cancellationToken);
+            return Results.Ok(new SprintListResponse(found, board));
+        }
+        catch (InvalidOperationException refused)
+        {
+            return Results.Problem(
+                title: "Sprints unavailable",
+                detail: refused.Message,
+                statusCode: StatusCodes.Status409Conflict);
+        }
+    }
+
     private static void MapSourceReads(IEndpointRouteBuilder api)
     {
         // Candidate issues to copy. The Xray types are already excluded by the
@@ -116,10 +155,24 @@ public static class ApiEndpoints
                 CancellationToken cancellationToken,
                 string? search = null,
                 string? pageToken = null,
-                int maxResults = 50) =>
+                int maxResults = 50,
+                int? sprint = null) =>
             {
-                var issues = await reader.ListAsync(search, pageToken, maxResults, cancellationToken);
+                var issues = await reader.ListAsync(search, pageToken, maxResults, sprint, cancellationToken);
                 return Results.Ok(issues);
+            })
+            .RequireTenant(Tenant.Source);
+
+        // The source board's sprints, so a batch can be picked by sprint. A
+        // read of the source and nothing more: the ids only ever go back into
+        // the search above.
+        api.MapGet("/source/sprints", async (
+                SprintReader sprints,
+                IOptions<AtlassianOptions> options,
+                CancellationToken cancellationToken,
+                string? search = null) =>
+            {
+                return await ListSprints(sprints, Tenant.Source, options.Value.Source.BoardId, search, cancellationToken);
             })
             .RequireTenant(Tenant.Source);
 
@@ -140,18 +193,11 @@ public static class ApiEndpoints
             .RequireTenant(Tenant.Source);
     }
 
-    private static TenantConfig Describe(TenantOptions options, string email, string token)
-    {
-        var configured = !string.IsNullOrWhiteSpace(email) && !string.IsNullOrWhiteSpace(token);
-
-        return new TenantConfig(
-            Host: options.BaseUri.Host,
-            ProjectKey: options.ProjectKey,
-            AvailableProjects: options.ProjectChoices,
-            BoardId: options.BoardId,
-            Configured: configured,
-            Email: email);
-    }
+    private static TenantConfig Describe(TenantOptions options) => new(
+        Host: options.SiteUri.Host,
+        ProjectKey: options.ProjectKey,
+        AvailableProjects: options.ProjectChoices,
+        BoardId: options.BoardId);
 
     private static async Task<IResult> WhoAmI(
         AtlassianClientFactory clients,
@@ -170,10 +216,10 @@ public static class ApiEndpoints
         }
 
         // Whether the tenant exposes email addresses at all decides how users
-        // can be matched across the two sites. source-company hides them, which is
+        // can be matched across the two sites. source-site hides them, which is
         // why the mapping table exists - so report it rather than assume it.
         return Results.Ok(new IdentityResponse(
-            Host: client.BaseAddress.Host,
+            Host: client.SiteUri.Host,
             AccountId: user.AccountId,
             DisplayName: user.DisplayName,
             EmailAddress: user.EmailAddress,

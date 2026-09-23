@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using TicketCloner.Api.Atlassian;
 
 namespace TicketCloner.Api.Tests.Infrastructure;
 
@@ -14,11 +15,15 @@ public sealed record CapturedRequest(
 
     public string Path => Uri.AbsolutePath;
 
-    public bool CarriedCredentialsFor(string email, string apiToken)
-    {
-        var expected = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{email}:{apiToken}"));
-        return Authorization == $"Basic {expected}";
-    }
+    /// <summary>
+    /// Which tenant this call was for. Under OAuth every call goes to the same
+    /// host, api.atlassian.com, and the cloud id in the path is the only thing
+    /// that says which site - so this is what a test asserts on, never Host.
+    /// </summary>
+    public Tenant? Tenant => StubAtlassian.TenantOf(Uri);
+
+    public bool CarriedBearer(string accessToken) =>
+        Authorization == $"Bearer {accessToken}";
 }
 
 /// <summary>
@@ -37,6 +42,41 @@ public sealed class StubAtlassian(Func<HttpRequestMessage, HttpResponseMessage>?
 
     public CapturedRequest RequestTo(string pathFragment) =>
         _requests.Last(request => request.Uri.ToString().Contains(pathFragment, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The tenant a URL is for. A signed-in call carries the cloud id at
+    /// api.atlassian.com/ex/jira/{cloud id}/; anything still addressed to a
+    /// site's own host is recognised too, so a fake can answer either shape.
+    /// </summary>
+    public static Tenant? TenantOf(Uri uri)
+    {
+        var path = uri.AbsolutePath;
+
+        if (path.StartsWith($"/ex/jira/{TestApp.SourceCloudId}/", StringComparison.Ordinal))
+        {
+            return Tenant.Source;
+        }
+
+        if (path.StartsWith($"/ex/jira/{TestApp.TargetCloudId}/", StringComparison.Ordinal))
+        {
+            return Tenant.Target;
+        }
+
+        if (uri.Host.Contains("source-site", StringComparison.OrdinalIgnoreCase))
+        {
+            return Tenant.Source;
+        }
+
+        if (uri.Host.Contains("target-site", StringComparison.OrdinalIgnoreCase))
+        {
+            return Tenant.Target;
+        }
+
+        return null;
+    }
+
+    public static bool IsSource(HttpRequestMessage request) =>
+        TenantOf(request.RequestUri!) == Tenant.Source;
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -61,21 +101,19 @@ public sealed class StubAtlassian(Func<HttpRequestMessage, HttpResponseMessage>?
         Content = new StringContent(json, Encoding.UTF8, "application/json"),
     };
 
-    /// <summary>A plausible GET /rest/api/3/myself, keyed off the host.</summary>
+    /// <summary>A plausible GET /rest/api/3/myself, keyed off the tenant.</summary>
     private static HttpResponseMessage Myself(HttpRequestMessage request)
     {
-        var host = request.RequestUri!.Host;
+        var source = IsSource(request);
 
-        // source-company hides email addresses; your-company does not. Mirroring that
+        // source-site hides email addresses; target-site does not. Mirroring that
         // here keeps the tests honest about what each side can actually tell us.
-        var email = host.Contains("source-company", StringComparison.OrdinalIgnoreCase)
-            ? "null"
-            : "\"you@example.com\"";
+        var email = source ? "null" : "\"someone@example.com\"";
 
         return Json(
             $$"""
             {
-              "accountId": "acc-{{host.Split('.')[0]}}",
+              "accountId": "acc-{{(source ? "source-site" : "target-site")}}",
               "displayName": "Test User",
               "emailAddress": {{email}},
               "accountType": "atlassian"

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using TicketCloner.Api.Atlassian;
 using TicketCloner.Api.Contracts;
 using TicketCloner.Api.Tests.Infrastructure;
 
@@ -7,19 +8,15 @@ namespace TicketCloner.Api.Tests;
 
 public class TargetMetadataTests
 {
-    private static Dictionary<string, string?> BothTenantsConfigured() => new()
+    private static Dictionary<string, string?> Mapping() => new()
     {
-        ["Credentials:SourceEmail"] = "source-account@example.com",
-        ["Credentials:SourceApiToken"] = "source-only-token",
-        ["Credentials:TargetEmail"] = "target-account@example.com",
-        ["Credentials:TargetApiToken"] = "target-only-token",
         ["Mapping:Priorities:None"] = "Medium",
     };
 
     private static (TestApp App, StubAtlassian Stub) Sut()
     {
         var stub = new StubAtlassian(BothTenantsFake.Handler);
-        return (new TestApp(stub, BothTenantsConfigured()), stub);
+        return (new TestApp(stub, Mapping(), signedIn: true), stub);
     }
 
     [Fact]
@@ -32,7 +29,7 @@ public class TargetMetadataTests
         var types = await client.GetFromJsonAsync<List<TargetIssueType>>("/api/target/issuetypes");
 
         Assert.NotNull(types);
-        Assert.Equal(["Bug", "Story", "Task"], types.Select(type => type.Name));
+        Assert.Equal(["Bug", "Story", "Task", "Epic"], types.Select(type => type.Name));
     }
 
     [Fact]
@@ -48,10 +45,10 @@ public class TargetMetadataTests
         var fields = await client.GetFromJsonAsync<List<TargetField>>("/api/target/issuetypes/10001/fields");
 
         Assert.NotNull(fields);
-        Assert.Equal(13, fields.Count);
+        Assert.Equal(14, fields.Count);
 
         // Page two only, so its absence would mean the loop never ran.
-        Assert.Contains(fields, field => field.Name == "YOUR_COMPANY Client");
+        Assert.Contains(fields, field => field.Name == "Customer");
         Assert.Equal(2, stub.Requests.Count(request => request.Path.Contains("/createmeta/")));
     }
 
@@ -80,8 +77,8 @@ public class TargetMetadataTests
         var fields = await client.GetFromJsonAsync<List<TargetField>>("/api/target/issuetypes/10001/fields");
         Assert.NotNull(fields);
 
-        var your-companyClient = fields.Single(field => field.Name == "YOUR_COMPANY Client");
-        Assert.Equal(["TARGET_PROJECT", "Qudos"], your-companyClient.AllowedValues.Select(allowed => allowed.Name));
+        var customerField = fields.Single(field => field.Name == "Customer");
+        Assert.Equal(["TGT", "Example Customer"], customerField.AllowedValues.Select(allowed => allowed.Name));
 
         var priority = fields.Single(field => field.FieldId == "priority");
         Assert.Contains(priority.AllowedValues, allowed => allowed.Name == "Medium");
@@ -115,7 +112,7 @@ public class TargetMetadataTests
                 ? StubAtlassian.Json("""{"startAt":0,"maxResults":50,"total":9,"values":[]}""")
                 : BothTenantsFake.Handler(request));
 
-        using var app = new TestApp(stub, BothTenantsConfigured());
+        using var app = new TestApp(stub, Mapping(), signedIn: true);
         using var client = app.CreateClient();
 
         var response = await client.GetAsync("/api/target/issuetypes");
@@ -143,10 +140,6 @@ public class PreviewTests
     {
         var settings = new Dictionary<string, string?>
         {
-            ["Credentials:SourceEmail"] = "source-account@example.com",
-            ["Credentials:SourceApiToken"] = "source-only-token",
-            ["Credentials:TargetEmail"] = "target-account@example.com",
-            ["Credentials:TargetApiToken"] = "target-only-token",
             ["Mapping:Priorities:None"] = "Medium",
         };
 
@@ -161,7 +154,7 @@ public class PreviewTests
     private static (TestApp App, StubAtlassian Stub) Sut(params (string Key, string Value)[] extra)
     {
         var stub = new StubAtlassian(BothTenantsFake.Handler);
-        return (new TestApp(stub, Configured(extra)), stub);
+        return (new TestApp(stub, Configured(extra), signedIn: true), stub);
     }
 
     [Fact]
@@ -171,11 +164,11 @@ public class PreviewTests
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         Assert.NotNull(plan);
-        Assert.Equal("SOURCE_PROJECT-1234", plan.SourceKey);
-        Assert.Equal("TARGET_PROJECT", plan.TargetProjectKey);
+        Assert.Equal("SRC-1234", plan.SourceKey);
+        Assert.Equal("TGT", plan.TargetProjectKey);
         Assert.Equal("Bug", plan.TargetIssueTypeName);
 
         // Every outbound call was a read.
@@ -189,14 +182,14 @@ public class PreviewTests
         // Against a create screen shaped like the live one, where both are
         // required with no default. The plan supplies both, so neither may
         // reach the blocker list - this blocked every ticket in the project.
-        var (app, _) = Sut(("Mapping:Constants:YOUR_COMPANY Client", "TARGET_PROJECT"));
+        var (app, _) = Sut(("Mapping:Constants:Customer", "TGT"));
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         Assert.True(plan!.CanCreate);
-        Assert.Equal("YOUR_TARGET_PROJECT (TARGET_PROJECT)", plan.TargetProjectName);
+        Assert.Equal("Target Project (TGT)", plan.TargetProjectName);
         Assert.All(
             plan.Rows.Where(row => row.Name is "Project" or "Issue Type"),
             row => Assert.Equal(MappingStatus.Mapped, row.Status));
@@ -213,7 +206,7 @@ public class PreviewTests
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         var row = plan!.Rows.Single(row => row.Name == "Sprint");
         Assert.Equal(MappingStatus.Dropped, row.Status);
@@ -230,7 +223,7 @@ public class PreviewTests
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         var row = plan!.Rows.Single(row => row.Name == "Workaround");
         Assert.Equal(MappingStatus.Unmappable, row.Status);
@@ -244,12 +237,12 @@ public class PreviewTests
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         var row = plan!.Rows.Single(row => row.Name == "Story point estimate");
         Assert.Equal(MappingStatus.Mapped, row.Status);
-        Assert.Equal("customfield_EXAMPLE_ID", row.SourceFieldId);
-        Assert.Equal("customfield_11512", row.TargetFieldId);
+        Assert.Equal("customfield_70010", row.SourceFieldId);
+        Assert.Equal("customfield_70007", row.TargetFieldId);
     }
 
     [Fact]
@@ -259,20 +252,20 @@ public class PreviewTests
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         Assert.False(plan!.CanCreate);
-        Assert.Contains(plan.Blockers, blocker => blocker.Contains("YOUR_COMPANY Client"));
+        Assert.Contains(plan.Blockers, blocker => blocker.Contains("Customer"));
     }
 
     [Fact]
     public async Task Configuring_the_constant_unblocks_the_plan()
     {
-        var (app, _) = Sut(("Mapping:Constants:YOUR_COMPANY Client", "TARGET_PROJECT"));
+        var (app, _) = Sut(("Mapping:Constants:Customer", "TGT"));
         using var _app = app;
         using var client = app.CreateClient();
 
-        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SOURCE_PROJECT-1234");
+        var plan = await client.GetFromJsonAsync<MappingPlan>("/api/preview/SRC-1234");
 
         Assert.True(plan!.CanCreate);
         Assert.Empty(plan.Blockers);
@@ -285,11 +278,11 @@ public class PreviewTests
         using var _app = app;
         using var client = app.CreateClient();
 
-        var response = await client.GetAsync("/api/preview/SOURCE_PROJECT-1234?issueType=Epic");
+        var response = await client.GetAsync("/api/preview/SRC-1234?issueType=Spike");
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Contains("no creatable issue type named 'Epic'", body);
+        Assert.Contains("no creatable issue type named 'Spike'", body);
 
         // And it says what could have been used, so the fix is a config edit
         // rather than another round of guessing.
@@ -297,17 +290,15 @@ public class PreviewTests
     }
 
     [Fact]
-    public async Task Previewing_needs_both_tenants_credentials()
+    public async Task Previewing_needs_a_grant_that_reaches_both_tenants()
     {
+        // Source only. Preview reads one tenant and writes to neither, but it
+        // needs the target's create screen, so half a grant is not enough.
         var stub = new StubAtlassian(BothTenantsFake.Handler);
-        using var app = new TestApp(stub, new Dictionary<string, string?>
-        {
-            ["Credentials:SourceEmail"] = "source-account@example.com",
-            ["Credentials:SourceApiToken"] = "source-only-token",
-        });
+        using var app = new TestApp(stub, signedIn: true, grants: [Tenant.Source]);
         using var client = app.CreateClient();
 
-        var response = await client.GetAsync("/api/preview/SOURCE_PROJECT-1234");
+        var response = await client.GetAsync("/api/preview/SRC-1234");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Empty(stub.Requests);

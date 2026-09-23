@@ -3,7 +3,7 @@ using System.Net;
 namespace TicketCloner.Api.Tests.Infrastructure;
 
 /// <summary>
-/// Canned responses shaped like the real SOURCE_PROJECT project on source-company: custom field
+/// Canned responses shaped like the real SRC project on source-site: custom field
 /// ids that mean nothing on the target, an expand=names map, an email address
 /// that is null because the tenant hides them, and comments that span pages.
 /// </summary>
@@ -19,6 +19,14 @@ public static class SourceTenantFake
             return StubAtlassian.Json(SearchResults);
         }
 
+        // The source board's sprints. Two pages of two, so the reader's paging
+        // loop is exercised, and a repeated name on purpose: a board reuses
+        // sprint names, and the id is the only thing that tells them apart.
+        if (path.Contains("/rest/agile/1.0/board/101/sprint", StringComparison.OrdinalIgnoreCase))
+        {
+            return StubAtlassian.Json(query.Contains("startAt=0") ? SprintsPageOne : SprintsPageTwo);
+        }
+
         if (path.Contains("/comment", StringComparison.OrdinalIgnoreCase))
         {
             // Two pages, so the reader's paging loop is actually exercised.
@@ -27,7 +35,14 @@ public static class SourceTenantFake
 
         if (path.Contains("/issue/", StringComparison.OrdinalIgnoreCase))
         {
-            return StubAtlassian.Json(Issue);
+            // Routed by key, so an epic and its child can both be read.
+            if (path.Contains("SRC-4000", StringComparison.OrdinalIgnoreCase))
+            {
+                return StubAtlassian.Json(Epic);
+            }
+
+            return StubAtlassian.Json(
+                path.Contains("SRC-4444", StringComparison.OrdinalIgnoreCase) ? ChildOfEpic : Issue);
         }
 
         return new HttpResponseMessage(HttpStatusCode.NotFound)
@@ -36,31 +51,85 @@ public static class SourceTenantFake
         };
     };
 
+    private const string SprintsPageOne =
+        """
+        {
+          "maxResults": 2,
+          "startAt": 0,
+          "total": 4,
+          "isLast": false,
+          "values": [
+            {
+              "id": 8001,
+              "state": "closed",
+              "name": "SRC Sprint 1",
+              "startDate": "2025-01-06T00:00:00.000Z",
+              "endDate": "2025-01-17T00:00:00.000Z",
+              "originBoardId": 101
+            },
+            {
+              "id": 8002,
+              "state": "closed",
+              "name": "SRC Sprint 2",
+              "startDate": "2025-01-20T00:00:00.000Z",
+              "endDate": "2025-01-31T00:00:00.000Z",
+              "originBoardId": 101
+            }
+          ]
+        }
+        """;
+
+    private const string SprintsPageTwo =
+        """
+        {
+          "maxResults": 2,
+          "startAt": 2,
+          "total": 4,
+          "isLast": true,
+          "values": [
+            {
+              "id": 8003,
+              "state": "active",
+              "name": "SRC Sprint 1",
+              "startDate": "2026-08-10T00:00:00.000Z",
+              "endDate": "2026-08-21T00:00:00.000Z",
+              "originBoardId": 101
+            },
+            {
+              "id": 8800,
+              "state": "future",
+              "name": "Hardening",
+              "originBoardId": 101
+            }
+          ]
+        }
+        """;
+
     private const string SearchResults =
         """
         {
           "issues": [
             {
-              "key": "SOURCE_PROJECT-1234",
+              "key": "SRC-1234",
               "fields": {
-                "summary": "Broker portal rejects valid ABN",
+                "summary": "Example portal rejects valid input",
                 "issuetype": { "name": "Bug" },
                 "status": { "name": "Open" },
                 "priority": { "name": "High" },
-                "reporter": { "accountId": "acc-1", "displayName": "Ray Tester", "emailAddress": null },
+                "reporter": { "accountId": "acc-1", "displayName": "Example Reporter", "emailAddress": null },
                 "assignee": null,
                 "updated": "2026-08-14T09:15:00.000+1000"
               }
             },
             {
-              "key": "SOURCE_PROJECT-1235",
+              "key": "SRC-1235",
               "fields": {
-                "summary": "Add serviceability calculator to the sidebar",
+                "summary": "Add example calculator to the sidebar",
                 "issuetype": { "name": "New Feature" },
                 "status": { "name": "Refinement" },
                 "priority": { "name": "Medium" },
-                "reporter": { "accountId": "acc-2", "displayName": "Sam Analyst", "emailAddress": null },
-                "assignee": { "accountId": "acc-3", "displayName": "Dev Person", "emailAddress": null },
+                "reporter": { "accountId": "acc-2", "displayName": "Example Analyst", "emailAddress": null },
+                "assignee": { "accountId": "acc-3", "displayName": "Example Developer", "emailAddress": null },
                 "updated": "2026-08-13T16:02:00.000+1000"
               }
             }
@@ -73,31 +142,31 @@ public static class SourceTenantFake
     private const string Issue =
         """
         {
-          "key": "SOURCE_PROJECT-1234",
+          "key": "SRC-1234",
           "names": {
             "summary": "Summary",
-            "customfield_EXAMPLE_ID": "Story point estimate",
-            "customfield_13613": "Workaround",
-            "customfield_SOURCE_ID": "Sprint",
-            "customfield_13621": "Summary (Short)",
-            "customfield_99999": "Never Populated",
+            "customfield_70010": "Story point estimate",
+            "customfield_70011": "Workaround",
+            "customfield_70003": "Sprint",
+            "customfield_70012": "Summary (Short)",
+            "customfield_70016": "Never Populated",
             "labels": "Labels"
           },
           "schema": {
-            "customfield_EXAMPLE_ID": { "type": "number", "custom": "com.pyxis.greenhopper.jira:jsw-story-points" },
-            "customfield_13613": { "type": "string", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:textfield" },
-            "customfield_SOURCE_ID": { "type": "json", "custom": "com.pyxis.greenhopper.jira:gh-sprint" }
+            "customfield_70010": { "type": "number", "custom": "com.pyxis.greenhopper.jira:jsw-story-points" },
+            "customfield_70011": { "type": "string", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:textfield" },
+            "customfield_70003": { "type": "json", "custom": "com.pyxis.greenhopper.jira:gh-sprint" }
           },
           "fields": {
-            "summary": "Broker portal rejects valid ABN",
+            "summary": "Example portal rejects valid input",
             "issuetype": { "name": "Bug" },
             "status": { "name": "Open" },
             "priority": { "name": "High" },
-            "reporter": { "accountId": "acc-1", "displayName": "Ray Tester", "emailAddress": null },
+            "reporter": { "accountId": "acc-1", "displayName": "Example Reporter", "emailAddress": null },
             "assignee": null,
             "created": "2026-08-10T11:00:00.000+1000",
             "updated": "2026-08-14T09:15:00.000+1000",
-            "labels": ["broker", "abn"],
+            "labels": ["example", "input"],
             "description": {
               "type": "doc",
               "version": 1,
@@ -119,18 +188,18 @@ public static class SourceTenantFake
                 }
               ]
             },
-            "customfield_EXAMPLE_ID": 5,
-            "customfield_13613": "Enter the ABN without spaces",
-            "customfield_SOURCE_ID": [
+            "customfield_70010": 5,
+            "customfield_70011": "Enter the example value without spaces",
+            "customfield_70003": [
               {
-                "id": 8796,
-                "name": "BAU.2026.Q3.S3",
+                "id": 8003,
+                "name": "Example Sprint 3",
                 "state": "active",
-                "boardId": 200
+                "boardId": 101
               }
             ],
-            "customfield_13621": "",
-            "customfield_99999": null,
+            "customfield_70012": "",
+            "customfield_70016": null,
             "attachment": [
               {
                 "id": "50021",
@@ -138,9 +207,64 @@ public static class SourceTenantFake
                 "mimeType": "image/png",
                 "size": 84213,
                 "created": "2026-08-10T11:05:00.000+1000",
-                "author": { "accountId": "acc-1", "displayName": "Ray Tester", "emailAddress": null }
+                "author": { "accountId": "acc-1", "displayName": "Example Reporter", "emailAddress": null }
               }
             ]
+          }
+        }
+        """;
+
+    /// <summary>An Epic, which is what a parent has to be for any of this to fire.</summary>
+    private const string Epic =
+        """
+        {
+          "key": "SRC-4000",
+          "names": { "summary": "Summary", "issuetype": "Issue Type" },
+          "schema": {},
+          "fields": {
+            "summary": "Example portal improvements",
+            "issuetype": { "name": "Epic" },
+            "status": { "name": "Open" },
+            "priority": { "name": "High" },
+            "reporter": { "accountId": "acc-1", "displayName": "Example Reporter", "emailAddress": null },
+            "assignee": null,
+            "created": "2026-08-01T09:00:00.000+1000",
+            "updated": "2026-08-02T09:00:00.000+1000",
+            "labels": [],
+            "parent": null,
+            "description": null,
+            "attachment": []
+          }
+        }
+        """;
+
+    /// <summary>A Story sitting under that epic.</summary>
+    private const string ChildOfEpic =
+        """
+        {
+          "key": "SRC-4444",
+          "names": { "summary": "Summary", "issuetype": "Issue Type" },
+          "schema": {},
+          "fields": {
+            "summary": "Example portal rejects valid input",
+            "issuetype": { "name": "Story" },
+            "status": { "name": "Open" },
+            "priority": { "name": "High" },
+            "reporter": { "accountId": "acc-1", "displayName": "Example Reporter", "emailAddress": null },
+            "assignee": null,
+            "created": "2026-08-10T11:00:00.000+1000",
+            "updated": "2026-08-14T09:15:00.000+1000",
+            "labels": [],
+            "parent": {
+              "id": "9001",
+              "key": "SRC-4000",
+              "fields": {
+                "summary": "Example portal improvements",
+                "issuetype": { "name": "Epic" }
+              }
+            },
+            "description": null,
+            "attachment": []
           }
         }
         """;
@@ -154,7 +278,7 @@ public static class SourceTenantFake
           "comments": [
             {
               "id": "9001",
-              "author": { "accountId": "acc-1", "displayName": "Ray Tester", "emailAddress": null },
+              "author": { "accountId": "acc-1", "displayName": "Example Reporter", "emailAddress": null },
               "created": "2026-08-11T08:30:00.000+1000",
               "body": { "type": "doc", "version": 1, "content": [] }
             }
@@ -171,7 +295,7 @@ public static class SourceTenantFake
           "comments": [
             {
               "id": "9002",
-              "author": { "accountId": "acc-3", "displayName": "Dev Person", "emailAddress": null },
+              "author": { "accountId": "acc-3", "displayName": "Example Developer", "emailAddress": null },
               "created": "2026-08-12T14:45:00.000+1000",
               "body": { "type": "doc", "version": 1, "content": [] }
             }

@@ -10,11 +10,27 @@ namespace TicketCloner.Api.Contracts;
 /// re-read from the source at apply time, because they were never part of the
 /// plan and nothing should be able to inject them by editing it.
 /// </summary>
+/// <param name="CreateEpicsFor">Source epic keys the caller agreed to create.
+/// An epic missing from the target is only cloned when its key appears here, so
+/// a ticket nobody selected is never written on the strength of a parent
+/// relationship alone.</param>
+/// <param name="AddToActiveSprint">Put each copy in the TARGET board's current
+/// sprint, whichever that is when the run happens. Off by default: a copy
+/// landing in the sprint somebody is working now is a decision, not a detail,
+/// and the sprint that gets used is named in the UI before the button is
+/// pressed.</param>
+/// <param name="SprintId">Put each copy in this TARGET sprint instead, chosen
+/// from the target board's own list. A target id and nothing else - the source
+/// has sprint ids too and they mean nothing here. Wins over
+/// <see cref="AddToActiveSprint"/> when both are set.</param>
 public sealed record ApplyRequest(
     IReadOnlyList<MappingPlan> Plans,
     bool IncludeComments = true,
     bool IncludeAttachments = true,
-    bool SkipDuplicates = true);
+    bool SkipDuplicates = true,
+    IReadOnlyList<string>? CreateEpicsFor = null,
+    bool AddToActiveSprint = false,
+    int? SprintId = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<ApplyStatus>))]
 public enum ApplyStatus

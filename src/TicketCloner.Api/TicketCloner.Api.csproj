@@ -4,11 +4,18 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>YOUR_USER_SECRETS_ID</UserSecretsId>
+    <UserSecretsId>ticket-cloner-example</UserSecretsId>
   </PropertyGroup>
 
   <PropertyGroup>
     <SpaRoot>$(MSBuildProjectDirectory)\..\..\ClientApp\</SpaRoot>
+
+    <!-- Where the app will be mounted, with a trailing slash. "/" is its own
+         IIS site. Override when it is an application INSIDE another site:
+           dotnet publish ... -p:AppBase=/ticket-cloner/
+         Baked into the SPA at build time, so a build made for one mount point
+         cannot be dropped at another. -->
+    <AppBase Condition="'$(AppBase)' == ''">/</AppBase>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,8 +27,20 @@
        every deployment. Verified: a publish carried two real tokens into the
        output folder. Neither of these belongs on a server. -->
   <ItemGroup>
-    <Content Update="appsettings.Local.json" CopyToPublishDirectory="Never" />
-    <Content Update="appsettings.Local.example.json" CopyToPublishDirectory="Never" />
+    <!-- Never in bin either, not just never published. The build was copying
+         these into bin/Debug, bin/Release AND the test output, so one file
+         holding a live secret became four. The app reads its content root,
+         which for dotnet run/watch is the project directory, so nothing
+         needs the copy. -->
+    <Content Update="appsettings.Local*.json"
+             CopyToOutputDirectory="Never"
+             CopyToPublishDirectory="Never" />
+
+    <!-- Development-only config has no business on a server, and this file is
+         not inert there: it points OAuth:PostSignInUrl at Vite on localhost.
+         An instance accidentally running as Development would complete a
+         sign-in by redirecting the browser to a port on the SERVER. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <!-- The SPA is only built on publish, so day-to-day dotnet build stays fast.
@@ -32,8 +51,8 @@
   </Target>
 
   <Target Name="BuildSpa" DependsOnTargets="RestoreSpa" AfterTargets="ComputeFilesToPublish">
-    <Message Importance="high" Text="Building the SPA into wwwroot..." />
-    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" />
+    <Message Importance="high" Text="Building the SPA into wwwroot (base $(AppBase))..." />
+    <Exec WorkingDirectory="$(SpaRoot)" Command="npm run build" EnvironmentVariables="APP_BASE=$(AppBase)" />
 
     <ItemGroup>
       <SpaDistFiles Include="$(SpaRoot)dist\**" />

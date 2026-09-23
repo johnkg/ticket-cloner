@@ -14,15 +14,17 @@ public sealed record ConfigResponse(
 
 /// <param name="Host">Shown instead of a friendly name. The project names are
 /// inverted across the two tenants, so only the host is unambiguous.</param>
-/// <param name="Configured">Whether this instance holds a stored credential.
-/// Never the token itself.</param>
+///
+/// <remarks>
+/// Carries nothing about credentials. It used to report whether a token was
+/// configured and for which email; the tool no longer stores one, and whether a
+/// person can reach a tenant is what /api/auth/status answers.
+/// </remarks>
 public sealed record TenantConfig(
     string Host,
     string ProjectKey,
     IReadOnlyList<string> AvailableProjects,
-    int BoardId,
-    bool Configured,
-    string Email);
+    int BoardId);
 
 /// <summary>Whoever the supplied credential authenticates as.</summary>
 public sealed record IdentityResponse(

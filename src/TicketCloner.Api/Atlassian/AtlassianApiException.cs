@@ -23,7 +23,7 @@ public sealed class AtlassianApiException(
 
     /// <summary>
     /// Jira Cloud rate-limits under bulk load and expects the caller to back
-    /// off. ReleaseTool never needed this; copying batches does.
+    /// off. CompanionTool never needed this; copying batches does.
     /// </summary>
     public bool IsRateLimit => StatusCode == HttpStatusCode.TooManyRequests;
 

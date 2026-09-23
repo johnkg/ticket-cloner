@@ -25,7 +25,7 @@ public sealed class SourceIssueReader(
     {
         "summary", "description", "issuetype", "status", "priority",
         "reporter", "assignee", "labels", "created", "updated",
-        "comment", "attachment", "project",
+        "comment", "attachment", "project", "parent",
     };
 
     private TenantOptions Source => options.Value.Source;
@@ -36,9 +36,10 @@ public sealed class SourceIssueReader(
         string? search,
         string? pageToken,
         int maxResults,
+        int? sprintId,
         CancellationToken cancellationToken)
     {
-        var jql = BuildJql(search);
+        var jql = BuildJql(search, sprintId);
 
         var body = new Dictionary<string, object?>
         {
@@ -61,7 +62,7 @@ public sealed class SourceIssueReader(
         var response = await client.PostAsync<JsonNode>("rest/api/3/search/jql", body, cancellationToken);
 
         var issues = (response?["issues"] as JsonArray ?? [])
-            .Select(issue => ToSummary(issue, client.BaseAddress))
+            .Select(issue => ToSummary(issue, client.SiteUri))
             .Where(issue => issue is not null)
             .Select(issue => issue!)
             .ToList();
@@ -69,7 +70,7 @@ public sealed class SourceIssueReader(
         var nextPageToken = response?["nextPageToken"]?.GetValue<string>();
         var isLast = response?["isLast"]?.GetValue<bool>() ?? nextPageToken is null;
 
-        logger.LogDebug("Read {Count} issues from {Host}", issues.Count, client.BaseAddress.Host);
+        logger.LogDebug("Read {Count} issues from {Host}", issues.Count, client.SiteUri.Host);
 
         return new IssueListResponse(issues, nextPageToken, isLast, jql);
     }
@@ -96,7 +97,7 @@ public sealed class SourceIssueReader(
 
         return new SourceIssue(
             Key: issue["key"]?.GetValue<string>() ?? key,
-            Url: new Uri(Client.BaseAddress, $"browse/{key}").ToString(),
+            Url: new Uri(Client.SiteUri, $"browse/{key}").ToString(),
             IssueType: fields["issuetype"]?["name"]?.GetValue<string>() ?? "",
             Summary: fields["summary"]?.GetValue<string>() ?? "",
             Status: fields["status"]?["name"]?.GetValue<string>(),
@@ -109,10 +110,33 @@ public sealed class SourceIssueReader(
                 .Select(label => label?.GetValue<string>() ?? "")
                 .Where(label => label.Length > 0)
                 .ToList(),
+            Parent: ToParent(fields["parent"]),
             Description: fields["description"]?.DeepClone(),
             Fields: ExtractFields(fields, names, schema),
             Comments: comments,
             Attachments: ExtractAttachments(fields));
+    }
+
+    /// <summary>
+    /// Jira nests the parent's own summary and issue type under the reference,
+    /// so an Epic parent is recognisable without fetching it separately.
+    /// </summary>
+    private SourceParent? ToParent(JsonNode? parent)
+    {
+        var key = parent?["key"]?.GetValue<string>();
+
+        if (key is null)
+        {
+            return null;
+        }
+
+        var nested = parent?["fields"];
+
+        return new SourceParent(
+            Key: key,
+            Url: new Uri(Client.SiteUri, $"browse/{key}").ToString(),
+            Summary: nested?["summary"]?.GetValue<string>() ?? "",
+            IssueType: nested?["issuetype"]?["name"]?.GetValue<string>() ?? "");
     }
 
     /// <summary>
@@ -128,9 +152,17 @@ public sealed class SourceIssueReader(
     /// here rather than at the mapping stage means they are never read, and a
     /// type that is never read cannot be mis-mapped.
     /// </summary>
-    public string BuildJql(string? search)
+    public string BuildJql(string? search, int? sprintId = null)
     {
         var jql = new StringBuilder($"project = {Escape(Source.ProjectKey)}");
+
+        // A source sprint id, from the source's own board, used only to search
+        // the source. An integer, so nothing to escape - and it narrows on top
+        // of whatever the search box says rather than instead of it.
+        if (sprintId is > 0)
+        {
+            jql.Append($" AND sprint = {sprintId}");
+        }
 
         if (Source.ExcludedIssueTypes.Length > 0)
         {
@@ -140,15 +172,52 @@ public sealed class SourceIssueReader(
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            // A bare key is far and away the common case, so match it exactly
-            // rather than making the user remember which field to search.
-            jql.Append(LooksLikeAnIssueKey(search)
-                ? $" AND key = {Escape(search.Trim().ToUpperInvariant())}"
-                : $" AND summary ~ \"{Escape(search.Trim())}\"");
+            var keys = IssueKeysIn(search);
+
+            jql.Append(keys.Count switch
+            {
+                // A pasted list, which is how a batch gets picked out in one go.
+                > 1 => $" AND key IN ({string.Join(", ", keys.Select(Escape))})",
+
+                // A bare key is far and away the common case, so match it
+                // exactly rather than making the user remember which field to
+                // search.
+                1 => $" AND key = {Escape(keys[0])}",
+
+                _ => $" AND summary ~ \"{Escape(search.Trim())}\"",
+            });
         }
 
         jql.Append(" ORDER BY updated DESC");
         return jql.ToString();
+    }
+
+    /// <summary>
+    /// Every issue key in the search box - but only if that is ALL it holds.
+    /// Pasting a list is how several tickets get selected at once, so commas,
+    /// semicolons, tabs and newlines all separate.
+    ///
+    /// One non-key token makes the whole thing a summary search instead. A
+    /// half-understood list would quietly copy the subset it recognised, and
+    /// silently doing less than asked is the worst of the available outcomes.
+    /// </summary>
+    private List<string> IssueKeysIn(string search)
+    {
+        var tokens = search.Split(
+            [',', ';', ' ', '\t', '\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (tokens.Length == 0 || !tokens.All(LooksLikeAnIssueKey))
+        {
+            return [];
+        }
+
+        // Deduplicated: the same key twice in a paste must not become two
+        // copies of the same ticket.
+        return tokens
+            .Select(token => token.ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     private bool LooksLikeAnIssueKey(string search)
@@ -263,7 +332,7 @@ public sealed class SourceIssueReader(
         return new SourceUser(
             AccountId: accountId,
             DisplayName: user!["displayName"]?.GetValue<string>() ?? accountId,
-            // Null on source-company: the tenant hides email addresses, which is why
+            // Null on source-site: the tenant hides email addresses, which is why
             // users cannot be matched by email in the direction that matters.
             EmailAddress: user["emailAddress"]?.GetValue<string>());
     }

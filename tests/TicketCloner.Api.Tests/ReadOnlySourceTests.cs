@@ -5,7 +5,7 @@ using TicketCloner.Api.Tests.Infrastructure;
 namespace TicketCloner.Api.Tests;
 
 /// <summary>
-/// The tool reads source-company and never writes to it. That is enforced in the
+/// The tool reads source-site and never writes to it. That is enforced in the
 /// client rather than left to convention, so a future endpoint cannot quietly
 /// acquire the ability however it is wired up.
 /// </summary>
@@ -15,17 +15,22 @@ public class ReadOnlySourceTests
     {
         var stub = new StubAtlassian(_ => StubAtlassian.Json("{}"));
         var host = tenant == Tenant.Source
-            ? "https://source-domain.atlassian.net/"
-            : "https://target-domain.atlassian.net/";
+            ? "https://source.example.invalid/"
+            : "https://target.example.invalid/";
 
         var http = new HttpClient(stub) { BaseAddress = new Uri(host) };
-        return (new AtlassianClient(http, tenant, new AtlassianCredentials("a@b.com", "token")), stub);
+
+        return (
+            new AtlassianClient(
+                http, tenant, new BearerCredential("token"),
+                new Uri(host), new Uri(host)),
+            stub);
     }
 
     [Theory]
     [InlineData("rest/api/3/issue")]
-    [InlineData("rest/api/3/issue/SOURCE_PROJECT-1234/comment")]
-    [InlineData("rest/api/3/issue/SOURCE_PROJECT-1234/attachments")]
+    [InlineData("rest/api/3/issue/SRC-1234/comment")]
+    [InlineData("rest/api/3/issue/SRC-1234/attachments")]
     public async Task Writing_to_the_source_is_refused(string path)
     {
         var (client, stub) = ClientFor(Tenant.Source);
@@ -45,7 +50,7 @@ public class ReadOnlySourceTests
         // The one POST that does not modify anything.
         var (client, stub) = ClientFor(Tenant.Source);
 
-        await client.PostAsync<JsonNode>("rest/api/3/search/jql", new { jql = "project = SOURCE_PROJECT" }, CancellationToken.None);
+        await client.PostAsync<JsonNode>("rest/api/3/search/jql", new { jql = "project = SRC" }, CancellationToken.None);
 
         Assert.Single(stub.Requests);
     }
@@ -55,7 +60,7 @@ public class ReadOnlySourceTests
     {
         var (client, stub) = ClientFor(Tenant.Source);
 
-        await client.GetAsync<JsonNode>("rest/api/3/issue/SOURCE_PROJECT-1234", CancellationToken.None);
+        await client.GetAsync<JsonNode>("rest/api/3/issue/SRC-1234", CancellationToken.None);
 
         Assert.Single(stub.Requests);
     }

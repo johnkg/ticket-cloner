@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using TicketCloner.Api.Jira;
 
 namespace TicketCloner.Api.Contracts;
 
@@ -37,6 +38,22 @@ public sealed record MappingRow(
     IReadOnlyList<string>? AllowedValues = null);
 
 /// <summary>
+/// The epic a copy should end up under, and whether one already exists there.
+/// </summary>
+/// <param name="ExistingCopy">The TGT epic that already corresponds to this
+/// source epic, matched on External Issue ID or an identical summary. Null
+/// means there is none and one has to be created for the copy to be
+/// parented.</param>
+public sealed record EpicPlan(
+    string SourceKey,
+    string SourceUrl,
+    string Summary,
+    ExistingCopy? ExistingCopy)
+{
+    public bool WillCreate => ExistingCopy is null;
+}
+
+/// <summary>
 /// The whole preview for one issue, and the thing the apply step is handed back
 /// so the two cannot disagree about what was about to happen.
 /// </summary>
@@ -49,7 +66,23 @@ public sealed record MappingPlan(
     string TargetIssueTypeName,
     string IssueTypeReason,
     IReadOnlyList<MappingRow> Rows,
-    IReadOnlyList<string> Blockers)
+    IReadOnlyList<string> Blockers,
+
+    /// <summary>
+    /// A copy already sitting on the target, found while previewing so the UI
+    /// can show it and link to it.
+    ///
+    /// Advisory only. The plan makes a round trip through the browser, so apply
+    /// runs the same search again itself rather than believing this.
+    /// </summary>
+    ExistingCopy? ExistingCopy = null,
+
+    /// <summary>
+    /// Set when the source issue sits under an Epic. Advisory like
+    /// <see cref="ExistingCopy"/> - apply looks again rather than trusting a
+    /// plan that has been through the browser.
+    /// </summary>
+    EpicPlan? Epic = null)
 {
     /// <summary>
     /// Nothing is created while a blocker stands. Unmappable values do not

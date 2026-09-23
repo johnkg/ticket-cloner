@@ -27,3 +27,19 @@ public sealed record AllowedValue(string Id, string Name);
 public sealed record TargetIssueTypeFields(
     TargetIssueType IssueType,
     IReadOnlyList<TargetField> Fields);
+
+/// <summary>
+/// The target board's current sprint. Ids here belong to the TARGET tenant and
+/// are read from it - nothing about this comes from the source.
+/// </summary>
+public sealed record ActiveSprint(
+    int Id,
+    string Name,
+    string? Goal,
+    DateTimeOffset? StartDate,
+    DateTimeOffset? EndDate);
+
+/// <param name="Sprint">Null when there is no single active sprint.</param>
+/// <param name="Reason">Why not, in a sentence the UI can show. Null when
+/// <paramref name="Sprint"/> is set.</param>
+public sealed record ActiveSprintResult(ActiveSprint? Sprint, string? Reason);

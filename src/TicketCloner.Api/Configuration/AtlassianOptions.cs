@@ -4,9 +4,9 @@ using Microsoft.Extensions.Options;
 namespace TicketCloner.Api.Configuration;
 
 /// <summary>
-/// Source and Target, never TARGET_PROJECT and YOUR_COMPANY. The project named TARGET_PROJECT lives on
-/// the YOUR_COMPANY tenant and the project named YOUR_SOURCE_PROJECT lives
-/// on the SOURCE_COMPANY tenant, so a section named after the project resolves to
+/// Source and Target, never TGT and target-site. The project named TGT lives on
+/// the target-site tenant and the project named Source Project lives
+/// on the source-site tenant, so a section named after the project resolves to
 /// the wrong site. See CLAUDE.md.
 /// </summary>
 public sealed class AtlassianOptions
@@ -22,6 +22,10 @@ public sealed class AtlassianOptions
 
 public sealed class TenantOptions
 {
+    /// <summary>
+    /// The site a person visits - https://target.example.invalid. Every URL
+    /// the tool shows, links to, or writes into an issue is built from this.
+    /// </summary>
     [Required(AllowEmptyStrings = false)]
     public string BaseUrl { get; init; } = "";
 
@@ -31,7 +35,7 @@ public sealed class TenantOptions
     /// <summary>
     /// The project's display name. The key alone does not tell a reader which
     /// tenant they are about to write to, and the names here are inverted - so
-    /// the preview says "YOUR_TARGET_PROJECT (TARGET_PROJECT)" rather than "TARGET_PROJECT",
+    /// the preview says "Target Project (TGT)" rather than "TGT",
     /// which reads as the other site. Falls back to the key when unset.
     /// </summary>
     public string ProjectName { get; init; } = "";
@@ -63,22 +67,20 @@ public sealed class TenantOptions
     public string[] ExcludedIssueTypes { get; init; } = [];
 
     /// <summary>
-    /// Target only: a JQL-searchable text field holding the source issue key.
-    /// This is the duplicate check - remote links cannot be queried.
-    /// </summary>
-    public string ProvenanceFieldName { get; init; } = "TARGET_PROJECT Source Key";
-
-    /// <summary>
     /// Target only: a text field holding the source issue's URL, so whoever
-    /// reads the copy can open the original.
-    ///
-    /// Separate from <see cref="ProvenanceFieldName"/> on purpose: that one
-    /// holds the bare key because the duplicate check searches it, and a URL
-    /// makes for a needlessly loose match.
+    /// reads the copy can open the original. It is also the duplicate check,
+    /// together with the summary - remote links cannot be queried, and this
+    /// field can.
     /// </summary>
     public string SourceUrlFieldName { get; init; } = "External Issue ID";
 
-    public Uri BaseUri => new(BaseUrl, UriKind.Absolute);
+    /// <summary>
+    /// The site, for links and anything a person reads. Never where the REST
+    /// calls go: under OAuth those go to api.atlassian.com/ex/jira/{cloudId}/,
+    /// a host that renders as nothing in a browser, and the cloud id is only
+    /// known once somebody has signed in - see TenantAccessResolver.
+    /// </summary>
+    public Uri SiteUri => new(BaseUrl, UriKind.Absolute);
 }
 
 /// <summary>

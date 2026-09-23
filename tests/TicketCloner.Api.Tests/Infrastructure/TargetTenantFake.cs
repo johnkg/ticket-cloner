@@ -3,7 +3,7 @@ using System.Net;
 namespace TicketCloner.Api.Tests.Infrastructure;
 
 /// <summary>
-/// The TARGET_PROJECT project's create screen on your-company, shaped like the real one:
+/// The TGT project's create screen on target-site, shaped like the real one:
 /// a Workaround field whose type differs from the source's, a required select
 /// with no default, project and issuetype required exactly as the live one
 /// reports them, and enough fields to force createmeta's paging.
@@ -14,6 +14,13 @@ public static class TargetTenantFake
     {
         var path = request.RequestUri!.AbsolutePath;
         var query = request.RequestUri.Query;
+
+        // Preview now asks whether a copy already exists. Nothing here by
+        // default; FakeTenants is where a test says otherwise.
+        if (path.EndsWith("/search/jql", StringComparison.OrdinalIgnoreCase))
+        {
+            return StubAtlassian.Json("""{"issues":[],"isLast":true}""");
+        }
 
         if (path.Contains("/createmeta/", StringComparison.OrdinalIgnoreCase))
         {
@@ -37,7 +44,7 @@ public static class TargetTenantFake
         };
     };
 
-    // Keys copied from a real TARGET_PROJECT response: the issue-type list is under
+    // Keys copied from a real TGT response: the issue-type list is under
     // "issueTypes" and the field list under "fields". Neither is "values",
     // which is what the reader used to look for - and a fake that agreed with
     // the reader is how the whole suite passed against a broken assumption.
@@ -50,7 +57,8 @@ public static class TargetTenantFake
           "issueTypes": [
             { "id": "10001", "name": "Bug", "subtask": false },
             { "id": "10002", "name": "Story", "subtask": false },
-            { "id": "10003", "name": "Task", "subtask": false }
+            { "id": "10003", "name": "Task", "subtask": false },
+            { "id": "10004", "name": "Epic", "subtask": false }
           ]
         }
         """;
@@ -59,8 +67,8 @@ public static class TargetTenantFake
         """
         {
           "startAt": 0,
-          "maxResults": 6,
-          "total": 13,
+          "maxResults": 7,
+          "total": 14,
           "fields": [
             {
               "fieldId": "project",
@@ -69,7 +77,7 @@ public static class TargetTenantFake
               "hasDefaultValue": false,
               "schema": { "type": "project", "system": "project" },
               "allowedValues": [
-                { "id": "15326", "key": "TARGET_PROJECT", "name": "YOUR_TARGET_PROJECT" }
+                { "id": "20000", "key": "TGT", "name": "Target Project" }
               ]
             },
             {
@@ -81,6 +89,13 @@ public static class TargetTenantFake
               "allowedValues": [
                 { "id": "10001", "name": "Bug" }
               ]
+            },
+            {
+              "fieldId": "parent",
+              "name": "Parent",
+              "required": false,
+              "hasDefaultValue": false,
+              "schema": { "type": "issuelink", "system": "parent" }
             },
             {
               "fieldId": "summary",
@@ -129,13 +144,13 @@ public static class TargetTenantFake
     private const string FieldsPageTwo =
         """
         {
-          "startAt": 6,
+          "startAt": 7,
           "maxResults": 7,
-          "total": 13,
+          "total": 14,
           "fields": [
             {
-              "fieldId": "customfield_15000",
-              "name": "TARGET_PROJECT Source Key",
+              "fieldId": "customfield_70013",
+              "name": "TGT Source Key",
               "required": false,
               "hasDefaultValue": false,
               "schema": { "type": "string", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:textfield" }
@@ -148,42 +163,42 @@ public static class TargetTenantFake
               "schema": { "type": "array", "items": "string", "system": "labels" }
             },
             {
-              "fieldId": "customfield_11318",
+              "fieldId": "customfield_70006",
               "name": "Workaround",
               "required": false,
               "hasDefaultValue": false,
               "schema": { "type": "string", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:textarea" }
             },
             {
-              "fieldId": "customfield_11512",
+              "fieldId": "customfield_70007",
               "name": "Story point estimate",
               "required": false,
               "hasDefaultValue": false,
               "schema": { "type": "number", "custom": "com.pyxis.greenhopper.jira:jsw-story-points" }
             },
             {
-              "fieldId": "customfield_11595",
+              "fieldId": "customfield_70008",
               "name": "External Issue ID",
               "required": false,
               "hasDefaultValue": false,
               "schema": { "type": "string", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:textfield" }
             },
             {
-              "fieldId": "customfield_TARGET_ID",
+              "fieldId": "customfield_70002",
               "name": "Sprint",
               "required": false,
               "hasDefaultValue": false,
               "schema": { "type": "json", "custom": "com.pyxis.greenhopper.jira:gh-sprint" }
             },
             {
-              "fieldId": "customfield_10300",
-              "name": "YOUR_COMPANY Client",
+              "fieldId": "customfield_70005",
+              "name": "Customer",
               "required": true,
               "hasDefaultValue": false,
               "schema": { "type": "option", "custom": "com.atlassian.jira.plugin.system.customfieldtypes:select" },
               "allowedValues": [
-                { "id": "20001", "value": "TARGET_PROJECT" },
-                { "id": "20002", "value": "Qudos" }
+                { "id": "20001", "value": "TGT" },
+                { "id": "20002", "value": "Example Customer" }
               ]
             }
           ]
@@ -191,11 +206,11 @@ public static class TargetTenantFake
         """;
 }
 
-/// <summary>Routes by host, so one handler can stand in for both tenants.</summary>
+/// <summary>Routes by tenant, so one handler can stand in for both.</summary>
 public static class BothTenantsFake
 {
     public static Func<HttpRequestMessage, HttpResponseMessage> Handler => request =>
-        request.RequestUri!.Host.Contains("source-company", StringComparison.OrdinalIgnoreCase)
+        StubAtlassian.IsSource(request)
             ? SourceTenantFake.Handler(request)
             : TargetTenantFake.Handler(request);
 }

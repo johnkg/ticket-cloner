@@ -24,10 +24,10 @@ public class FieldMappingTests
         SourceUser? reporter = null,
         params SourceFieldValue[] fields) =>
         new(
-            Key: "SOURCE_PROJECT-1234",
-            Url: "https://source-domain.atlassian.net/browse/SOURCE_PROJECT-1234",
+            Key: "SRC-1234",
+            Url: "https://source.example.invalid/browse/SRC-1234",
             IssueType: issueType,
-            Summary: "Broker portal rejects valid ABN",
+            Summary: "Example portal rejects valid input",
             Status: "Open",
             Priority: priority,
             Reporter: reporter,
@@ -35,6 +35,7 @@ public class FieldMappingTests
             Created: DateTimeOffset.UtcNow,
             Updated: DateTimeOffset.UtcNow,
             Labels: [],
+            Parent: null,
             Description: null,
             Fields: fields,
             Comments: [],
@@ -54,7 +55,7 @@ public class FieldMappingTests
     private static readonly TargetField Summary = Field("summary", "Summary", required: true);
 
     private static MappingPlan Plan(FieldMapper mapper, SourceIssue issue, params TargetField[] createScreen) =>
-        mapper.Build(issue, "TARGET_PROJECT", "YOUR_TARGET_PROJECT (TARGET_PROJECT)", Bug, "chosen for the test", createScreen);
+        mapper.Build(issue, "TGT", "Target Project (TGT)", Bug, "chosen for the test", createScreen);
 
     private static MappingRow Row(MappingPlan plan, string name) =>
         plan.Rows.Single(row => row.Name == name);
@@ -64,7 +65,7 @@ public class FieldMappingTests
     [Fact]
     public void Project_and_issue_type_are_supplied_by_the_plan_and_never_block()
     {
-        // The live TARGET_PROJECT create screen lists both as required with no default.
+        // The live TGT create screen lists both as required with no default.
         // Neither is read from the source and neither was ever in doubt, so a
         // plan reporting them missing blocks every ticket in the project for
         // no reason - which is exactly what it did.
@@ -82,11 +83,11 @@ public class FieldMappingTests
     [Fact]
     public void The_project_row_names_the_destination_rather_than_only_keying_it()
     {
-        // The tenant names are inverted: 'TARGET_PROJECT' alone reads as the other site.
+        // The tenant names are inverted: 'TGT' alone reads as the other site.
         var row = Row(Plan(Mapper(), Issue(), Summary), "Project");
 
-        Assert.Equal("YOUR_TARGET_PROJECT (TARGET_PROJECT)", row.SourceValue?.GetValue<string>());
-        Assert.Equal("TARGET_PROJECT", row.MappedValue?["key"]?.GetValue<string>());
+        Assert.Equal("Target Project (TGT)", row.SourceValue?.GetValue<string>());
+        Assert.Equal("TGT", row.MappedValue?["key"]?.GetValue<string>());
     }
 
     [Fact]
@@ -213,9 +214,9 @@ public class FieldMappingTests
     {
         // Sending it would be a hard 400, so it is dropped and reported.
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_13613", "Workaround", true, "string",
+            "customfield_70011", "Workaround", true, "string",
             "com.atlassian.jira.plugin.system.customfieldtypes:textfield",
-            JsonValue.Create("Enter the ABN without spaces")));
+            JsonValue.Create("Enter the example value without spaces")));
 
         var plan = Plan(Mapper(), issue, Summary);
 
@@ -231,17 +232,42 @@ public class FieldMappingTests
         // The dangerous case. It looks mappable and would either 400 or write
         // the wrong shape of value.
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_13613", "Workaround", true, "string",
+            "customfield_70011", "Workaround", true, "string",
             "com.atlassian.jira.plugin.system.customfieldtypes:textfield",
             JsonValue.Create("restart the service")));
 
         var plan = Plan(Mapper(), issue, Summary,
-            Field("customfield_11318", "Workaround",
+            Field("customfield_70006", "Workaround",
                 custom: "com.atlassian.jira.plugin.system.customfieldtypes:textarea"));
 
         var row = Row(plan, "Workaround");
         Assert.Equal(MappingStatus.Unmappable, row.Status);
         Assert.Contains("the type differs", row.Reason);
+        Assert.Null(row.MappedValue);
+    }
+
+    [Theory]
+    // Both sides carry the same greenhopper type, so every check the mapper
+    // makes says yes - and the value is an issue key belonging to the source.
+    [InlineData("Epic Link", "any", "com.pyxis.greenhopper.jira:gh-epic-link")]
+    // The source reports an array of issue links where the target takes one.
+    [InlineData("Parent", "array", null)]
+    public void A_reference_to_an_issue_on_the_other_tenant_is_never_mapped(
+        string name, string type, string? custom)
+    {
+        // Seen live: Epic Link mapped clean and would have written "SRC-6942"
+        // onto the copy - a key that names nothing on the target, or names
+        // something else entirely.
+        var source = new SourceFieldValue("customfield_70004", name, true, type, custom,
+            JsonValue.Create("SRC-6942"));
+
+        var plan = Plan(Mapper(), Issue(fields: source),
+            Summary,
+            Field("customfield_70003", name, type: type, custom: custom));
+
+        var row = Row(plan, name);
+        Assert.Equal(MappingStatus.Dropped, row.Status);
+        Assert.Null(row.TargetFieldId);
         Assert.Null(row.MappedValue);
     }
 
@@ -259,10 +285,10 @@ public class FieldMappingTests
         // belongs to the tenant that issued it, so there is no correct value to
         // map it to. The only safe answer is to drop it and say so.
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_SOURCE_ID", "Sprint", true, type, custom, JsonValue.Create("Sprint 42")));
+            "customfield_70003", "Sprint", true, type, custom, JsonValue.Create("Sprint 42")));
 
         var plan = Plan(Mapper(), issue, Summary,
-            Field("customfield_TARGET_ID", "Sprint", type: "json",
+            Field("customfield_70002", "Sprint", type: "json",
                 custom: "com.pyxis.greenhopper.jira:gh-sprint", isArray: true));
 
         var row = Row(plan, "Sprint");
@@ -276,18 +302,18 @@ public class FieldMappingTests
     public void A_matching_name_and_type_carries_over()
     {
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_EXAMPLE_ID", "Story point estimate", true, "number",
+            "customfield_70010", "Story point estimate", true, "number",
             "com.pyxis.greenhopper.jira:jsw-story-points", JsonValue.Create(5)));
 
         var plan = Plan(Mapper(), issue, Summary,
-            Field("customfield_11512", "Story point estimate", "number",
+            Field("customfield_70007", "Story point estimate", "number",
                 "com.pyxis.greenhopper.jira:jsw-story-points"));
 
         var row = Row(plan, "Story point estimate");
         Assert.Equal(MappingStatus.Mapped, row.Status);
 
         // Mapped onto the TARGET's field id, not the source's.
-        Assert.Equal("customfield_11512", row.TargetFieldId);
+        Assert.Equal("customfield_70007", row.TargetFieldId);
         Assert.Equal(5, row.MappedValue!.GetValue<int>());
     }
 
@@ -297,12 +323,12 @@ public class FieldMappingTests
         // Option ids are per-tenant. Carrying the source's id across would
         // either 400 or select something unrelated.
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_11599", "LW Severity", true, "option",
+            "customfield_70009", "LW Severity", true, "option",
             "com.atlassian.jira.plugin.system.customfieldtypes:select",
             new JsonObject { ["id"] = "99999", ["value"] = "Major" }));
 
         var plan = Plan(Mapper(), issue, Summary,
-            Field("customfield_22222", "LW Severity", "option",
+            Field("customfield_70015", "LW Severity", "option",
                 "com.atlassian.jira.plugin.system.customfieldtypes:select",
                 allowed: [new AllowedValue("31", "Minor"), new AllowedValue("32", "Major")]));
 
@@ -315,12 +341,12 @@ public class FieldMappingTests
     public void An_option_with_no_counterpart_reports_what_is_allowed()
     {
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_11599", "LW Severity", true, "option",
+            "customfield_70009", "LW Severity", true, "option",
             "com.atlassian.jira.plugin.system.customfieldtypes:select",
             new JsonObject { ["value"] = "Catastrophic" }));
 
         var plan = Plan(Mapper(), issue, Summary,
-            Field("customfield_22222", "LW Severity", "option",
+            Field("customfield_70015", "LW Severity", "option",
                 "com.atlassian.jira.plugin.system.customfieldtypes:select",
                 allowed: [new AllowedValue("31", "Minor"), new AllowedValue("32", "Major")]));
 
@@ -334,12 +360,12 @@ public class FieldMappingTests
     public void Multi_selects_map_every_option()
     {
         var issue = Issue(fields: new SourceFieldValue(
-            "customfield_1", "Applies to", true, "option",
+            "customfield_70001", "Applies to", true, "option",
             "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes",
             new JsonArray(new JsonObject { ["value"] = "Web" }, new JsonObject { ["value"] = "Mobile" })));
 
         var plan = Plan(Mapper(), issue, Summary,
-            Field("customfield_2", "Applies to", "option",
+            Field("customfield_70014", "Applies to", "option",
                 "com.atlassian.jira.plugin.system.customfieldtypes:multicheckboxes",
                 isArray: true,
                 allowed: [new AllowedValue("1", "Web"), new AllowedValue("2", "Mobile")]));
@@ -403,15 +429,15 @@ public class FieldMappingTests
     public void A_required_target_field_with_no_source_value_and_no_default_blocks_the_create()
     {
         var plan = Plan(Mapper(), Issue(), Summary,
-            Field("customfield_10300", "YOUR_COMPANY Client", "option",
+            Field("customfield_70005", "Customer", "option",
                 "com.atlassian.jira.plugin.system.customfieldtypes:select",
                 required: true));
 
-        var row = Row(plan, "YOUR_COMPANY Client");
+        var row = Row(plan, "Customer");
         Assert.Equal(MappingStatus.MissingRequired, row.Status);
 
         Assert.False(plan.CanCreate);
-        Assert.Contains(plan.Blockers, blocker => blocker.Contains("Mapping:Constants:YOUR_COMPANY Client"));
+        Assert.Contains(plan.Blockers, blocker => blocker.Contains("Mapping:Constants:Customer"));
     }
 
     [Fact]
@@ -419,17 +445,17 @@ public class FieldMappingTests
     {
         var mapper = Mapper(new MappingOptions
         {
-            Constants = new(StringComparer.OrdinalIgnoreCase) { ["YOUR_COMPANY Client"] = "TARGET_PROJECT" },
+            Constants = new(StringComparer.OrdinalIgnoreCase) { ["Customer"] = "TGT" },
         });
 
         var plan = Plan(mapper, Issue(), Summary,
-            Field("customfield_10300", "YOUR_COMPANY Client", "option",
+            Field("customfield_70005", "Customer", "option",
                 "com.atlassian.jira.plugin.system.customfieldtypes:select",
                 required: true));
 
-        var row = Row(plan, "YOUR_COMPANY Client");
+        var row = Row(plan, "Customer");
         Assert.Equal(MappingStatus.Mapped, row.Status);
-        Assert.Equal("TARGET_PROJECT", row.MappedValue!.GetValue<string>());
+        Assert.Equal("TGT", row.MappedValue!.GetValue<string>());
         Assert.True(plan.CanCreate);
     }
 
@@ -437,7 +463,7 @@ public class FieldMappingTests
     public void A_required_field_with_a_default_does_not_block()
     {
         var plan = Plan(Mapper(), Issue(), Summary,
-            Field("customfield_1", "Change type", "option", required: true, hasDefault: true));
+            Field("customfield_70001", "Change type", "option", required: true, hasDefault: true));
 
         Assert.Equal(MappingStatus.Dropped, Row(plan, "Change type").Status);
         Assert.True(plan.CanCreate);
@@ -462,7 +488,7 @@ public class FieldMappingTests
     [Fact]
     public void Reporter_carries_its_account_id_across()
     {
-        var issue = Issue(reporter: new SourceUser("acc-1", "Ray Tester", null));
+        var issue = Issue(reporter: new SourceUser("acc-1", "Example Reporter", null));
 
         var plan = Plan(Mapper(), issue, Summary, Field("reporter", "Reporter", "user"));
 
@@ -478,14 +504,14 @@ public class FieldMappingTests
     public void Rows_that_need_attention_come_first()
     {
         var issue = Issue(priority: "Blocker", fields: new SourceFieldValue(
-            "customfield_EXAMPLE_ID", "Story point estimate", true, "number",
+            "customfield_70010", "Story point estimate", true, "number",
             "com.pyxis.greenhopper.jira:jsw-story-points", JsonValue.Create(5)));
 
         var plan = Plan(Mapper(), issue, Summary,
             Field("priority", "Priority", "priority", allowed: [new AllowedValue("3", "Medium")]),
-            Field("customfield_11512", "Story point estimate", "number",
+            Field("customfield_70007", "Story point estimate", "number",
                 "com.pyxis.greenhopper.jira:jsw-story-points"),
-            Field("customfield_10300", "YOUR_COMPANY Client", "option", required: true));
+            Field("customfield_70005", "Customer", "option", required: true));
 
         Assert.Equal(MappingStatus.MissingRequired, plan.Rows[0].Status);
         Assert.Equal(MappingStatus.Unmappable, plan.Rows[1].Status);

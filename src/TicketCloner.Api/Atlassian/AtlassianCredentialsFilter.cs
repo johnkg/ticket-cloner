@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Options;
+using TicketCloner.Api.OAuth;
+
 namespace TicketCloner.Api.Atlassian;
 
 /// <summary>
@@ -14,17 +17,40 @@ public sealed class AtlassianCredentialsFilter(Tenant tenant) : IEndpointFilter
         EndpointFilterInvocationContext context,
         EndpointFilterDelegate next)
     {
-        var resolver = context.HttpContext.RequestServices.GetRequiredService<CredentialsResolver>();
+        var services = context.HttpContext.RequestServices;
+        var resolver = services.GetRequiredService<TenantAccessResolver>();
 
-        if (!resolver.For(tenant).IsPresent)
+        var access = await resolver.ResolveAsync(tenant, context.HttpContext.RequestAborted);
+
+        if (!access.Credential.IsPresent)
         {
-            return Results.Problem(
-                title: "No Atlassian credentials",
-                detail: $"This endpoint needs {tenant.ToString().ToLowerInvariant()}-tenant credentials. " +
-                        $"Send {tenant.EmailHeader()} and {tenant.TokenHeader()}, " +
-                        $"or configure Credentials:{tenant}Email and Credentials:{tenant}ApiToken.",
-                statusCode: StatusCodes.Status401Unauthorized);
+            // "Not signed in" and "nobody can sign in" are different problems
+            // with different fixes, and answering both with the same sentence
+            // sends people to press a button that is not there.
+            var oauth = services.GetRequiredService<IOptions<OAuthOptions>>().Value;
+
+            return oauth.IsConfigured
+                ? Results.Problem(
+                    title: "Not signed in",
+                    // One sign-in covers both tenants - the grant is account-level
+                    // - so this names no tenant and takes no parameter.
+                    detail: $"Sign in to Atlassian at {context.HttpContext.Request.PathBase}" +
+                            "/api/auth/start. That grants both tenants; this request needed " +
+                            $"the {tenant.ToString().ToLowerInvariant()} one.",
+                    statusCode: StatusCodes.Status401Unauthorized)
+                : Results.Problem(
+                    title: "No Atlassian app is registered",
+                    // Signing in is the only way to reach a tenant: the tool
+                    // stores no API token and takes none on request headers.
+                    detail: $"This endpoint needs the {tenant.ToString().ToLowerInvariant()} tenant, " +
+                            "and nobody can sign in until an administrator registers an OAuth app " +
+                            "and sets OAuth:ClientId, OAuth:ClientSecret and OAuth:CallbackUrl.",
+                    statusCode: StatusCodes.Status401Unauthorized);
         }
+
+        // Everything downstream reads this rather than resolving again, so the
+        // refresh above happens exactly once per request per tenant.
+        context.HttpContext.Items[TenantAccess.ItemKey(tenant)] = access;
 
         return await next(context);
     }

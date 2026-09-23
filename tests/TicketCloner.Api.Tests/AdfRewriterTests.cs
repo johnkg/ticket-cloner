@@ -9,7 +9,7 @@ namespace TicketCloner.Api.Tests;
 /// </summary>
 public class AdfRewriterTests
 {
-    private static readonly Uri SourceSite = new("https://source-domain.atlassian.net/");
+    private static readonly Uri SourceSite = new("https://source.example.invalid/");
 
     private static JsonNode Doc(params JsonNode[] content) => new JsonObject
     {
@@ -40,7 +40,7 @@ public class AdfRewriterTests
     [Fact]
     public void A_resolved_mention_keeps_its_node_with_the_target_account_id()
     {
-        var document = Doc(Paragraph(Mention("acc-source", "@Ray Tester")));
+        var document = Doc(Paragraph(Mention("acc-source", "@Example Reporter")));
 
         var result = new AdfRewriter().Rewrite(document,
             Context(accounts: new() { ["acc-source"] = "acc-target" }));
@@ -54,13 +54,13 @@ public class AdfRewriterTests
     [Fact]
     public void An_unresolved_mention_becomes_plain_text_rather_than_a_dead_link()
     {
-        var document = Doc(Paragraph(Mention("acc-source", "@Ray Tester")));
+        var document = Doc(Paragraph(Mention("acc-source", "@Example Reporter")));
 
         var result = new AdfRewriter().Rewrite(document, Context());
 
         var node = result.Document!["content"]![0]!["content"]![0]!;
         Assert.Equal("text", node["type"]!.GetValue<string>());
-        Assert.Equal("@Ray Tester", node["text"]!.GetValue<string>());
+        Assert.Equal("@Example Reporter", node["text"]!.GetValue<string>());
         Assert.Contains(result.Removals, removal => removal.Contains("flattened to text"));
     }
 
@@ -69,17 +69,17 @@ public class AdfRewriterTests
     [Fact]
     public void A_relative_card_url_is_made_absolute_against_the_source_site()
     {
-        // A smartlink to SOURCE_PROJECT-1234 means nothing on the target. Pointing it back
+        // A smartlink to SRC-1234 means nothing on the target. Pointing it back
         // at the source at least makes it go somewhere real.
         var document = Doc(new JsonObject
         {
             ["type"] = "inlineCard",
-            ["attrs"] = new JsonObject { ["url"] = "/browse/SOURCE_PROJECT-1234" },
+            ["attrs"] = new JsonObject { ["url"] = "/browse/SRC-1234" },
         });
 
         var result = new AdfRewriter().Rewrite(document, Context());
 
-        Assert.Equal("https://source-domain.atlassian.net/browse/SOURCE_PROJECT-1234",
+        Assert.Equal("https://source.example.invalid/browse/SRC-1234",
             result.Document!["content"]![0]!["attrs"]!["url"]!.GetValue<string>());
     }
 
@@ -107,7 +107,7 @@ public class AdfRewriterTests
         // while the attachment's REST id is a number. Different identifier
         // spaces, so matching on id can never work - attrs.alt carries the only
         // value the two records share.
-        const string Url = "https://target-domain.atlassian.net/rest/api/3/attachment/content/70001";
+        const string Url = "https://target.example.invalid/rest/api/3/attachment/content/70001";
 
         var document = Doc(new JsonObject
         {
@@ -158,7 +158,7 @@ public class AdfRewriterTests
         });
 
         var result = new AdfRewriter().Rewrite(document,
-            Context(attachments: new() { ["screenshot.png"] = "https://target-domain.atlassian.net/x" }));
+            Context(attachments: new() { ["screenshot.png"] = "https://target.example.invalid/x" }));
 
         Assert.Empty((JsonArray)result.Document!["content"]!);
         Assert.Single(result.Removals);
@@ -225,7 +225,7 @@ public class AdfRewriterTests
     [Fact]
     public void The_original_document_is_not_mutated()
     {
-        var document = Doc(Paragraph(Mention("acc-source", "@Ray Tester")));
+        var document = Doc(Paragraph(Mention("acc-source", "@Example Reporter")));
 
         new AdfRewriter().Rewrite(document, Context());
 

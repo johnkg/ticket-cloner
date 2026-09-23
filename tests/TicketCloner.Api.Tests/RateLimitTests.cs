@@ -32,7 +32,7 @@ public class RateLimitTests
     private static HttpClient ClientOver(HttpMessageHandler inner) =>
         new(new RateLimitHandler(NullLogger<RateLimitHandler>.Instance) { InnerHandler = inner })
         {
-            BaseAddress = new Uri("https://target-domain.atlassian.net/"),
+            BaseAddress = new Uri("https://target.example.invalid/"),
         };
 
     [Fact]

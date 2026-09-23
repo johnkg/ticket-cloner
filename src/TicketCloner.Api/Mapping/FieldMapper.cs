@@ -34,6 +34,9 @@ public sealed class FieldMapper(IOptions<MappingOptions> options)
     ///
     /// Each of these carries a value that only means something on the tenant
     /// that issued it, while looking perfectly mappable on the way through.
+    /// They are all the same shape of mistake: a reference - to a sprint, an
+    /// epic, a parent - that is just an id or a key, with nothing in the value
+    /// itself to say which site it came from.
     /// </summary>
     private static readonly Dictionary<string, string> NeverMappedByName = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -42,6 +45,18 @@ public sealed class FieldMapper(IOptions<MappingOptions> options)
             "field just like the target's, so the types agree and the value looks mappable - but it " +
             "names a sprint on the source board, and the target rejects it with 'Specify a valid " +
             "value for Sprint'. Set the sprint by hand after the copy.",
+
+        ["Epic Link"] =
+            "An epic link holds an issue key, and that key belongs to the source tenant. Both sides " +
+            "carry the same greenhopper field type, so every check agrees and the value goes " +
+            "straight through - onto an epic that either does not exist here or, worse, is a " +
+            "different epic that happens to hold the same key. Link the copy to its epic by hand.",
+
+        ["Parent"] =
+            "A parent is an issue in the tenant that owns it, so a parent from the source names " +
+            "nothing here. The two sides do not agree on shape either - the source reports an array " +
+            "of issue links where the target takes a single one. Re-parent the copy by hand if it " +
+            "needs one.",
     };
 
     private MappingOptions Options => options.Value;
@@ -319,7 +334,7 @@ public sealed class FieldMapper(IOptions<MappingOptions> options)
                 MappingStatus.Dropped, why);
         }
 
-        // By NAME, never by id: customfield_EXAMPLE_ID on the source is a different
+        // By NAME, never by id: customfield_70010 on the source is a different
         // field on the target.
         if (!byName.TryGetValue(field.Name, out var target))
         {

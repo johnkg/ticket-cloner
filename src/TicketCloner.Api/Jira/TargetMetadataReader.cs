@@ -27,7 +27,7 @@ public sealed class TargetMetadataReader(
         var project = Uri.EscapeDataString(Target.ProjectKey);
 
         // The collection is "issueTypes", NOT the "values" most Jira paginated
-        // endpoints use. Verified against the live TARGET_PROJECT project on 18/08/2026.
+        // endpoints use. Verified against the live TGT project on 18/08/2026.
         var values = await ReadAllPagesAsync(
             client,
             "issueTypes",

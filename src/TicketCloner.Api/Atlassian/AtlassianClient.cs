@@ -1,6 +1,7 @@
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Options;
+using TicketCloner.Api.Configuration;
 
 namespace TicketCloner.Api.Atlassian;
 
@@ -13,7 +14,12 @@ namespace TicketCloner.Api.Atlassian;
 /// attached to a source request - the mistake is unrepresentable rather than
 /// merely discouraged.
 /// </summary>
-public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCredentials credentials)
+public sealed class AtlassianClient(
+    HttpClient http,
+    Tenant tenant,
+    IAtlassianCredential credentials,
+    Uri siteUri,
+    Uri apiBaseUri)
 {
     /// <summary>
     /// JQL search is a POST that reads. Everything else that is not a GET
@@ -23,7 +29,30 @@ public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCre
 
     public Tenant Tenant { get; } = tenant;
 
-    public Uri BaseAddress => http.BaseAddress!;
+    /// <summary>
+    /// Where the REST calls go. Not necessarily the site, and NOT the injected
+    /// HttpClient's BaseAddress - the named clients carry none.
+    ///
+    /// Under OAuth this depends on which user is calling, because it embeds
+    /// their cloud id. IHttpClientFactory's configure delegate cannot see the
+    /// request scope, so a per-user BaseAddress on the client is not merely
+    /// unwise but impossible; the URI is composed per call instead.
+    /// </summary>
+    public Uri ApiBaseUri { get; } = apiBaseUri.AbsoluteUri.EndsWith('/')
+        ? apiBaseUri
+        : new Uri(apiBaseUri.AbsoluteUri + "/");
+
+    /// <summary>
+    /// The site a person visits, which is what every link and every URL written
+    /// into an issue must be built from.
+    ///
+    /// Under API-token auth this equals <see cref="BaseAddress"/>, which is why
+    /// the two were one value for so long. Under OAuth the REST base becomes
+    /// https://api.atlassian.com/ex/jira/{cloudId}/ - a host that needs a Bearer
+    /// token and renders as nothing in a browser. Build a link from that and the
+    /// copied description's images break exactly as they did before.
+    /// </summary>
+    public Uri SiteUri { get; } = siteUri;
 
     public Task<T?> GetAsync<T>(string path, CancellationToken cancellationToken) =>
         SendAsync<T>(HttpMethod.Get, path, content: null, cancellationToken);
@@ -73,9 +102,8 @@ public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCre
         var relative = path.TrimStart('/');
         GuardAgainstWritingToTheSource(method, relative);
 
-        var request = new HttpRequestMessage(method, relative);
-        request.Headers.Authorization =
-            new AuthenticationHeaderValue("Basic", credentials.ToBasicParameter());
+        var request = new HttpRequestMessage(method, new Uri(ApiBaseUri, relative));
+        request.Headers.Authorization = credentials.ToAuthorizationHeader();
 
         return request;
     }
@@ -101,8 +129,9 @@ public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCre
         HttpContent? content,
         CancellationToken cancellationToken)
     {
-        // Relative, no leading slash: BaseAddress carries the host and a leading
-        // slash would silently discard any base path.
+        // Relative, no leading slash: ApiBaseUri carries the host and a leading
+        // slash would silently discard any base path - which under OAuth is the
+        // /ex/jira/{cloudId}/ segment, so every call would 404.
         using var request = Build(method, path);
         request.Content = content;
 
@@ -117,7 +146,7 @@ public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCre
     }
 
     /// <summary>
-    /// The tool reads source-company and never writes to it. Enforcing that here
+    /// The tool reads source-site and never writes to it. Enforcing that here
     /// rather than by convention means a future endpoint cannot quietly acquire
     /// the ability, however it is wired up.
     /// </summary>
@@ -135,7 +164,7 @@ public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCre
         if (!isReadOnlyPost)
         {
             throw new InvalidOperationException(
-                $"Refusing {method} {relativePath} on the source tenant ({BaseAddress.Host}). " +
+                $"Refusing {method} {relativePath} on the source tenant ({SiteUri.Host}). " +
                 "TicketCloner only ever reads from the source.");
         }
     }
@@ -147,10 +176,42 @@ public sealed class AtlassianClient(HttpClient http, Tenant tenant, AtlassianCre
 /// </summary>
 public sealed class AtlassianClientFactory(
     IHttpClientFactory httpClientFactory,
-    CredentialsResolver credentials)
+    IOptions<AtlassianOptions> options,
+    IHttpContextAccessor httpContextAccessor)
 {
-    public AtlassianClient For(Tenant tenant) => new(
-        httpClientFactory.CreateClient(tenant.ClientName()),
-        tenant,
-        credentials.For(tenant));
+    public AtlassianClient For(Tenant tenant)
+    {
+        var access = Access(tenant);
+
+        return new AtlassianClient(
+            httpClientFactory.CreateClient(tenant.ClientName()),
+            tenant,
+            access.Credential,
+            access.SiteUri,
+            access.ApiBaseUri);
+    }
+
+    /// <summary>
+    /// What AtlassianCredentialsFilter worked out before the handler ran. It is
+    /// resolved there rather than here because an OAuth refresh has to be
+    /// awaited and this must stay synchronous - six services call For() from
+    /// constructors and field initialisers.
+    /// </summary>
+    private TenantAccess Access(Tenant tenant)
+    {
+        if (httpContextAccessor.HttpContext?.Items.TryGetValue(TenantAccess.ItemKey(tenant), out var stashed) is true &&
+            stashed is TenantAccess resolved)
+        {
+            return resolved;
+        }
+
+        // No filter ran - there is no request, or the endpoint is unguarded.
+        // There is nothing to authorise with outside a signed-in request, so
+        // the client is built but carries no header; the site is still right
+        // for anything that only wants a URL.
+        return TenantAccess.None(Settings(tenant));
+    }
+
+    private TenantOptions Settings(Tenant tenant) =>
+        tenant == Tenant.Source ? options.Value.Source : options.Value.Target;
 }

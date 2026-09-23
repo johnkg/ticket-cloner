@@ -15,6 +15,7 @@ public sealed class MappingService(
     SourceIssueReader source,
     TargetMetadataReader target,
     FieldMapper mapper,
+    ExistingCopyFinder existingCopies,
     IOptions<AtlassianOptions> options)
 {
     public async Task<PreviewResult> PreviewAsync(
@@ -51,7 +52,66 @@ public sealed class MappingService(
             resolution.Reason,
             createScreen);
 
-        return new PreviewResult(plan, null);
+        // Answered here rather than only at apply time, so the decision about
+        // what to copy can be made while looking at the plan instead of being
+        // discovered afterwards in the results.
+        var existing = await FindExistingCopyAsync(issue, createScreen, cancellationToken);
+        var epic = await FindEpicAsync(issue, createScreen, cancellationToken);
+
+        return new PreviewResult(plan with { ExistingCopy = existing, Epic = epic }, null);
+    }
+
+    /// <summary>
+    /// Only an Epic parent counts. A sub-task's parent is a different
+    /// relationship, and re-creating that across tenants is not what this is
+    /// for - the parent would have to exist first, and it does not.
+    /// </summary>
+    private async Task<EpicPlan?> FindEpicAsync(
+        SourceIssue issue,
+        IReadOnlyList<TargetField> createScreen,
+        CancellationToken cancellationToken)
+    {
+        if (issue.Parent is not { IsEpic: true } parent)
+        {
+            return null;
+        }
+
+        var fieldName = options.Value.Target.SourceUrlFieldName;
+
+        var field = createScreen.FirstOrDefault(candidate =>
+            candidate.Name.Equals(fieldName, StringComparison.OrdinalIgnoreCase));
+
+        var existing = field is null
+            ? null
+            : await existingCopies.FindEpicAsync(
+                field.Name, field.FieldId, parent.Key, parent.Url, parent.Summary, cancellationToken);
+
+        return new EpicPlan(
+            parent.Key,
+            parent.Url,
+            parent.Summary,
+            existing is { SummaryMatches: true } ? existing : null);
+    }
+
+    private async Task<ExistingCopy?> FindExistingCopyAsync(
+        SourceIssue issue,
+        IReadOnlyList<TargetField> createScreen,
+        CancellationToken cancellationToken)
+    {
+        var fieldName = options.Value.Target.SourceUrlFieldName;
+
+        var field = createScreen.FirstOrDefault(candidate =>
+            candidate.Name.Equals(fieldName, StringComparison.OrdinalIgnoreCase));
+
+        // Nothing to match on. Apply says so in its own results; a preview that
+        // simply shows no copy would be claiming more than it knows.
+        if (field is null)
+        {
+            return null;
+        }
+
+        return await existingCopies.FindAsync(
+            field.Name, field.FieldId, issue.Key, issue.Url, issue.Summary, cancellationToken);
     }
 
     private static IssueTypeResolution ResolveOverride(string name, IReadOnlyList<TargetIssueType> available)

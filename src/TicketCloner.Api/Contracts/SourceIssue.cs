@@ -7,8 +7,8 @@ namespace TicketCloner.Api.Contracts;
 /// nothing about which tenant produced it.
 ///
 /// That independence is the point: the mapping engine consumes this and never
-/// learns whether it came from source-company or anywhere else, which is what lets
-/// the whole pipeline be developed and tested your-company-to-your-company before
+/// learns whether it came from source-site or anywhere else, which is what lets
+/// the whole pipeline be developed and tested target-site-to-target-site before
 /// pointing it across.
 /// </summary>
 public sealed record SourceIssue(
@@ -23,6 +23,14 @@ public sealed record SourceIssue(
     DateTimeOffset? Created,
     DateTimeOffset? Updated,
     IReadOnlyList<string> Labels,
+
+    /// <summary>
+    /// The issue this one sits under, if any. Only an Epic parent is acted on:
+    /// a sub-task's parent is a different relationship and re-creating it
+    /// across tenants is not what anybody asked for.
+    /// </summary>
+    SourceParent? Parent,
+
     JsonNode? Description,
     IReadOnlyList<SourceFieldValue> Fields,
     IReadOnlyList<SourceComment> Comments,
@@ -31,7 +39,7 @@ public sealed record SourceIssue(
 /// <summary>
 /// A populated field, carrying its NAME as well as its id.
 ///
-/// The name is what matters: customfield_EXAMPLE_ID on the source is a different
+/// The name is what matters: customfield_70010 on the source is a different
 /// field on the target, so mapping is by name and the id survives only for
 /// traceability in the preview.
 /// </summary>
@@ -46,9 +54,18 @@ public sealed record SourceFieldValue(
     string? SchemaCustom,
     JsonNode? Value);
 
+/// <summary>
+/// The parent named on a source issue. Jira returns the parent's own issue type
+/// alongside the key, so whether it is an Epic is known without a second read.
+/// </summary>
+public sealed record SourceParent(string Key, string Url, string Summary, string IssueType)
+{
+    public bool IsEpic => IssueType.Equals("Epic", StringComparison.OrdinalIgnoreCase);
+}
+
 /// <param name="AccountId">Shared across tenants for anyone holding one
 /// Atlassian account on both sites, which is what makes user mapping tractable
-/// at all - source-company hides email addresses.</param>
+/// at all - source-site hides email addresses.</param>
 public sealed record SourceUser(string AccountId, string DisplayName, string? EmailAddress);
 
 public sealed record SourceComment(
@@ -86,3 +103,20 @@ public sealed record IssueListResponse(
     string? NextPageToken,
     bool IsLast,
     string Jql);
+
+/// <summary>
+/// One sprint on a board, from either tenant's own agile API. A sprint id
+/// belongs to the tenant that issued it: a SOURCE sprint is only ever used to
+/// search the source, and a TARGET sprint is only ever written to the target.
+/// The two never meet, which is the rule the mapper enforces.
+/// </summary>
+/// <param name="State">closed, active or future, as Jira reports it.</param>
+public sealed record BoardSprint(
+    int Id,
+    string Name,
+    string State,
+    DateTimeOffset? StartDate,
+    DateTimeOffset? EndDate);
+
+/// <param name="Board">Which board was listed, so the UI can say so.</param>
+public sealed record SprintListResponse(IReadOnlyList<BoardSprint> Sprints, int Board);

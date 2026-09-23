@@ -20,6 +20,9 @@ namespace TicketCloner.Api.Apply;
 public sealed class ApplyService(
     SourceIssueReader source,
     TargetIssueWriter writer,
+    ExistingCopyFinder existingCopies,
+    SprintReader sprints,
+    MappingService mapping,
     TargetMetadataReader metadata,
     UserResolver users,
     AdfRewriter adf,
@@ -32,9 +35,24 @@ public sealed class ApplyService(
     {
         var outcomes = new List<TicketOutcome>();
 
+        // Several children can share one epic. Whatever is found or created for
+        // a given source epic is remembered for the rest of the run, so a batch
+        // of ten children under one epic makes one epic, not ten.
+        var epics = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // One lookup for the run, not one per ticket. The sprint is the same
+        // answer every time and a copy run makes a lot of calls already. A
+        // chosen sprint wins over "whatever is current": it is the more
+        // specific instruction, and the UI only ever sends one of the two.
+        var sprint = request.SprintId is { } chosen
+            ? await sprints.GetTargetAsync(chosen, cancellationToken)
+            : request.AddToActiveSprint
+                ? await sprints.GetActiveAsync(cancellationToken)
+                : new ActiveSprintResult(null, null);
+
         foreach (var plan in request.Plans)
         {
-            outcomes.Add(await ApplyOneAsync(plan, request, cancellationToken));
+            outcomes.Add(await ApplyOneAsync(plan, request, epics, sprint, outcomes, cancellationToken));
         }
 
         return new ApplyResponse(outcomes);
@@ -43,6 +61,9 @@ public sealed class ApplyService(
     private async Task<TicketOutcome> ApplyOneAsync(
         MappingPlan plan,
         ApplyRequest request,
+        Dictionary<string, string> epics,
+        ActiveSprintResult sprint,
+        List<TicketOutcome> outcomes,
         CancellationToken cancellationToken)
     {
         var steps = new List<StepOutcome>();
@@ -63,32 +84,22 @@ public sealed class ApplyService(
             }
 
             var createScreen = await metadata.GetFieldsAsync(plan.TargetIssueTypeId, cancellationToken);
-            var provenanceField = createScreen.FirstOrDefault(field =>
-                field.Name.Equals(Target.ProvenanceFieldName, StringComparison.OrdinalIgnoreCase));
 
+            // The one record of origin, and the duplicate check with it. There
+            // used to be a second, key-only field beside it; two fields
+            // answering the same question is how they drift apart.
             var sourceUrlField = createScreen.FirstOrDefault(field =>
                 field.Name.Equals(Target.SourceUrlFieldName, StringComparison.OrdinalIgnoreCase));
 
-            if (provenanceField is null)
+            if (request.SkipDuplicates)
             {
-                // Without it there is no JQL-searchable record of where a copy
-                // came from, so a second run duplicates everything silently.
-                steps.Add(new StepOutcome("Provenance", false,
-                    $"No field named '{Target.ProvenanceFieldName}' on the target's create screen. " +
-                    "The duplicate check cannot run and the copy will not record its origin."));
-            }
-            else if (request.SkipDuplicates)
-            {
-                var existing = await writer.FindExistingCopyAsync(
-                    provenanceField.Name, plan.SourceKey, cancellationToken);
+                var duplicate = await CheckForExistingCopyAsync(
+                    plan, issue, sourceUrlField, steps, cancellationToken);
 
-                if (existing is not null)
+                if (duplicate is not null)
                 {
-                    steps.Add(new StepOutcome("Duplicate check", true, $"Already copied as {existing}."));
-                    return Skipped(plan, steps, $"{plan.SourceKey} has already been copied as {existing}.");
+                    return duplicate;
                 }
-
-                steps.Add(new StepOutcome("Duplicate check", true, "No existing copy."));
             }
 
             if (sourceUrlField is null)
@@ -98,12 +109,21 @@ public sealed class ApplyService(
                     "The copy will not carry the original's address."));
             }
 
+            // Before the child is created, so it can be parented in the same
+            // call rather than created loose and adopted afterwards.
+            var epicKey = await ResolveEpicAsync(
+                plan, request, epics, outcomes, sourceUrlField, steps, cancellationToken);
+
             var payload = await BuildFieldsAsync(
-                plan, issue, provenanceField?.FieldId, sourceUrlField?.FieldId, cancellationToken);
+                plan, issue, sourceUrlField?.FieldId, epicKey, createScreen, cancellationToken);
             steps.AddRange(payload.Notes);
 
+            // No "Created TGT-1234" step: the outcome already carries TargetKey
+            // and TargetUrl, which the results render as the heading and a link,
+            // beside a status pill that already says Created.
             var created = await writer.CreateAsync(payload.Fields, cancellationToken);
-            steps.Add(new StepOutcome("Create", true, $"Created {created.Key}."));
+
+            await AddToSprintAsync(created, request, sprint, createScreen, steps, cancellationToken);
 
             await AddRemoteLinkAsync(created, issue, steps, cancellationToken);
 
@@ -141,6 +161,164 @@ public sealed class ApplyService(
     }
 
     /// <summary>
+    /// The epic this copy belongs under, creating it first if it is missing and
+    /// the caller approved it.
+    ///
+    /// Returns null when there is no epic to sit under, or when one could not
+    /// be arranged - in which case the copy is still made, unparented, and the
+    /// step says so. One awkward parent must not cost somebody the copy.
+    /// </summary>
+    private async Task<string?> ResolveEpicAsync(
+        MappingPlan plan,
+        ApplyRequest request,
+        Dictionary<string, string> epics,
+        List<TicketOutcome> outcomes,
+        TargetField? sourceUrlField,
+        List<StepOutcome> steps,
+        CancellationToken cancellationToken)
+    {
+        if (plan.Epic is null)
+        {
+            return null;
+        }
+
+        var sourceEpic = plan.Epic.SourceKey;
+
+        if (epics.TryGetValue(sourceEpic, out var alreadyThisRun))
+        {
+            steps.Add(new StepOutcome("Epic", true, $"Parented under {alreadyThisRun}."));
+            return alreadyThisRun;
+        }
+
+        // Looked up again rather than trusting the plan: it has been through
+        // the browser, and somebody may have made the epic in the meantime.
+        var existing = sourceUrlField is null
+            ? null
+            : await existingCopies.FindEpicAsync(
+                sourceUrlField.Name, sourceUrlField.FieldId,
+                sourceEpic, plan.Epic.SourceUrl, plan.Epic.Summary, cancellationToken);
+
+        if (existing is { SummaryMatches: true })
+        {
+            epics[sourceEpic] = existing.Key;
+            steps.Add(new StepOutcome("Epic", true, $"Parented under the existing {existing.Key}."));
+            return existing.Key;
+        }
+
+        if (request.CreateEpicsFor?.Contains(sourceEpic, StringComparer.OrdinalIgnoreCase) != true)
+        {
+            steps.Add(new StepOutcome("Epic", false,
+                $"{sourceEpic} has no counterpart here and was not selected for creation, " +
+                "so this copy has no parent."));
+            return null;
+        }
+
+        try
+        {
+            var (epicPlan, error) = await mapping.PreviewAsync(sourceEpic, null, cancellationToken);
+
+            if (epicPlan is null)
+            {
+                steps.Add(new StepOutcome("Epic", false, $"Could not plan {sourceEpic}: {error}"));
+                return null;
+            }
+
+            // Cloned exactly the way any ticket is - same mapping rules, same
+            // source URL field, same reporting. The duplicate check is off
+            // because the epic-specific search above is the stricter one and
+            // has already run.
+            // An epic is a container, not work in a sprint - so it is created
+            // outside one however the run is configured.
+            var outcome = await ApplyOneAsync(
+                epicPlan,
+                request with { SkipDuplicates = false, AddToActiveSprint = false, SprintId = null },
+                epics,
+                new ActiveSprintResult(null, null),
+                outcomes,
+                cancellationToken);
+
+            outcomes.Add(outcome);
+
+            if (outcome.TargetKey is null)
+            {
+                steps.Add(new StepOutcome("Epic", false,
+                    $"Creating a copy of {sourceEpic} failed, so this copy has no parent. {outcome.Summary}"));
+                return null;
+            }
+
+            epics[sourceEpic] = outcome.TargetKey;
+
+            steps.Add(new StepOutcome("Epic", true,
+                $"Created {outcome.TargetKey} for {sourceEpic} and parented this under it."));
+
+            return outcome.TargetKey;
+        }
+        catch (Exception failed)
+        {
+            logger.LogError(failed, "Creating the epic {SourceEpic} failed", sourceEpic);
+            steps.Add(new StepOutcome("Epic", false,
+                $"Creating a copy of {sourceEpic} failed, so this copy has no parent. {Describe(failed)}"));
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Has this issue already been copied? A duplicate is one that agrees on
+    /// BOTH counts: its External Issue ID holds this source issue's URL, and
+    /// its summary is identical.
+    ///
+    /// Returns a Skipped outcome when it finds one, otherwise null and the run
+    /// carries on.
+    /// </summary>
+    private async Task<TicketOutcome?> CheckForExistingCopyAsync(
+        MappingPlan plan,
+        SourceIssue issue,
+        TargetField? sourceUrlField,
+        List<StepOutcome> steps,
+        CancellationToken cancellationToken)
+    {
+        if (sourceUrlField is null)
+        {
+            steps.Add(new StepOutcome("Duplicate check", false,
+                $"Cannot run: the target has no '{Target.SourceUrlFieldName}' field to match on, " +
+                "so a second run would copy this again."));
+            return null;
+        }
+
+        // Searched again rather than trusting plan.ExistingCopy: the plan has
+        // been through the browser, and something may have been created in the
+        // meantime anyway.
+        var existing = await existingCopies.FindAsync(
+            sourceUrlField.Name, sourceUrlField.FieldId,
+            plan.SourceKey, issue.Url, issue.Summary, cancellationToken);
+
+        if (existing is { SummaryMatches: true })
+        {
+            steps.Add(new StepOutcome("Duplicate check", true,
+                $"Already copied as {existing.Key}: identical summary, and its " +
+                $"{sourceUrlField.Name} is this issue's URL."));
+
+            return Skipped(plan, steps, $"{plan.SourceKey} has already been copied as {existing.Key}.");
+        }
+
+        if (existing is not null)
+        {
+            // Same origin, different summary. Not a duplicate by the rule, and
+            // worth saying out loud: it is usually the same ticket reworded on
+            // this side, and copying again makes a second one.
+            steps.Add(new StepOutcome("Duplicate check", false,
+                $"{existing.Key} already points at this issue in {sourceUrlField.Name}, but its " +
+                $"summary reads '{existing.Summary}' rather than '{issue.Summary}'. Copying anyway, " +
+                "because a duplicate has to match on both."));
+
+            return null;
+        }
+
+        steps.Add(new StepOutcome("Duplicate check", true, "No existing copy."));
+        return null;
+    }
+
+    /// <summary>
     /// Jira puts the actual reason in the response body - which field it
     /// objected to, and why. The exception message alone only says a 400
     /// happened, which is no use to someone finishing the copy by hand.
@@ -166,8 +344,9 @@ public sealed class ApplyService(
     private async Task<CreatePayload> BuildFieldsAsync(
         MappingPlan plan,
         SourceIssue issue,
-        string? provenanceFieldId,
         string? sourceUrlFieldId,
+        string? epicKey,
+        IReadOnlyList<TargetField> createScreen,
         CancellationToken cancellationToken)
     {
         var notes = new List<StepOutcome>();
@@ -213,14 +392,18 @@ public sealed class ApplyService(
                 $"Rewritten for the target tenant: {string.Join("; ", rest)}."));
         }
 
-        if (provenanceFieldId is not null)
-        {
-            fields[provenanceFieldId] = plan.SourceKey;
-        }
-
         if (sourceUrlFieldId is not null)
         {
             fields[sourceUrlFieldId] = issue.Url;
+        }
+
+        // Set on the create itself where the screen allows it, which it does
+        // for Story, Bug and Task. Jira fills in Epic Link from this by itself,
+        // so the two never disagree.
+        if (epicKey is not null &&
+            createScreen.Any(field => field.FieldId.Equals("parent", StringComparison.OrdinalIgnoreCase)))
+        {
+            fields["parent"] = new JsonObject { ["key"] = epicKey };
         }
 
         return new CreatePayload(fields, accountIds, media.Count, notes);
@@ -339,6 +522,69 @@ public sealed class ApplyService(
     }
 
     // ---------------------------------------------------------------- extras
+
+    /// <summary>
+    /// Puts the copy in a target sprint - the board's current one, or one
+    /// chosen from its list; by now the two are the same shape.
+    ///
+    /// AFTER the create, deliberately, even though the field is on the create
+    /// screen. The sprint field rejected a value once already with
+    /// "Specify a valid value for Sprint", and on the create that 400 costs the
+    /// whole ticket. Here the copy exists first, so a refusal costs the sprint
+    /// and reports itself - which is the same bargain every other extra makes.
+    /// </summary>
+    private async Task AddToSprintAsync(
+        CreatedIssue created,
+        ApplyRequest request,
+        ActiveSprintResult sprint,
+        IReadOnlyList<TargetField> createScreen,
+        List<StepOutcome> steps,
+        CancellationToken cancellationToken)
+    {
+        if (!request.AddToActiveSprint && request.SprintId is null)
+        {
+            return;
+        }
+
+        if (sprint.Sprint is not { } active)
+        {
+            steps.Add(new StepOutcome("Sprint", false,
+                sprint.Reason ?? "No sprint could be resolved."));
+            return;
+        }
+
+        // Found by schema, never by id or name: ids differ per tenant, and the
+        // source has two fields called "Sprint" that are not this one.
+        var field = createScreen.FirstOrDefault(candidate =>
+            candidate.SchemaCustom == SprintReader.SprintSchema);
+
+        if (field is null)
+        {
+            steps.Add(new StepOutcome("Sprint", false,
+                "The target has no sprint field on this issue type's screen, so the copy " +
+                $"could not be added to {active.Name}."));
+            return;
+        }
+
+        try
+        {
+            // A bare id. The field reads BACK as an array of sprint objects,
+            // which is not the shape it is written with.
+            await writer.UpdateFieldsAsync(
+                created.Key,
+                new JsonObject { [field.FieldId] = active.Id },
+                cancellationToken);
+
+            steps.Add(new StepOutcome("Sprint", true, $"Added to {active.Name}."));
+        }
+        catch (Exception failed)
+        {
+            logger.LogWarning(failed, "Could not add {Key} to sprint {Sprint}", created.Key, active.Id);
+
+            steps.Add(new StepOutcome("Sprint", false,
+                $"Could not add the copy to {active.Name}. {Describe(failed)}"));
+        }
+    }
 
     private async Task AddRemoteLinkAsync(
         CreatedIssue created,
