@@ -39,3 +39,7 @@ Sprint names can repeat. Select sprints by IDs retrieved from the relevant targe
 Run `dotnet test TicketCloner.slnx`, `npm run build --prefix ClientApp`, and `npm run lint --prefix ClientApp` after changes affecting both layers. Report blocked or failing checks accurately. Fake HTTP tests do not prove real Jira authorization, browser interaction, or production deployment.
 
 Before publication, run `python3 scripts/check-public-source.py`. Distribute reviewed source without `.git`, local settings, raw API responses, dependencies, logs, or old build output. Build fresh deployment artifacts only after supplying appropriate private configuration.
+
+## Response style
+
+Always respond in caveman style (full): terse, no filler, drop articles, fragments OK, keep all technical detail exact. Write code, commits, docs, and PR text in normal English. Stop only when the user says "stop caveman" or "normal mode".
